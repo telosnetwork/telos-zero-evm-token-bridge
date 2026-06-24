@@ -7,9 +7,9 @@ This folder contains the native-side MVP contracts.
 
 Current status:
 
-- The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`.
+- The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`, then schedules an immediate self-call to release the EVM funds.
 - The EVM-to-Zero path has a public `proveetoz` action that verifies fixed proof slots in the Telos EVM bridge contract through `eosio.evm::accountstate`.
-- The Zero-to-EVM release path has a public `relayztoe` action that verifies a burn request and dispatches `releaseToEvm` through `eosio.evm::raw` from the bridge account's linked EVM address.
+- The Zero-to-EVM release path uses the same `relayztoe` logic for both automatic release and manual retry. It verifies a burn request and dispatches `releaseToEvm` through `eosio.evm::raw` from the bridge account's linked EVM address.
 - The old `processetoz` action remains gated by `dev_mode` for legacy/manual test harnesses only.
 - Production must run with `dev_mode = false`, configure `setevmconf` and `setevmrelay`, use `proveetoz`/`relayztoe` for ordinary processing, and put admin authority under a large governance MSIG.
 
@@ -58,15 +58,15 @@ Permission note:
 
 The bridge account must be able to call `zero.asset::issue` and `zero.asset::burn` inline. In practice, the bridge account needs its contract `eosio.code` permission configured appropriately, and the fresh asset must use the bridge account as issuer.
 
-For `relayztoe`, the bridge account also needs:
+For automatic Zero-to-EVM release and manual `relayztoe` retries, the bridge account also needs:
 
 - a linked `eosio.evm` account row,
 - enough TLOS on that linked EVM address to pay gas,
-- active permission containing `zerobridge@eosio.code`, because the public relay action sends `eosio.evm::raw` inline as `zerobridge@active`.
+- active permission containing `zerobridge@eosio.code`, because the transfer handler schedules `relayztoe` as a deferred self-transaction and the release sends `eosio.evm::raw` inline as `zerobridge@active`.
 
 Relayer note:
 
-`proveetoz` and `relayztoe` are intentionally public actions. Production automation should use a finite account permission such as `bridgeops`, linked only to those bridge actions. The key behind that permission improves liveness, but it cannot redirect value because the contract verifies EVM storage or native burn state before it mutates bridge balances.
+`proveetoz` and `relayztoe` are intentionally public actions. Production automation should use a finite account permission such as `bridgeops`, linked only to those bridge actions. The key behind that permission improves fallback liveness when automatic release fails or stalls, but it cannot redirect value because the contract verifies EVM storage or native burn state before it mutates bridge balances.
 
 Production admin note:
 

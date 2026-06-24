@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
+#include "../include/rlp.hpp"
 #include "../include/zero.bridge.hpp"
 #include <algorithm>
+#include <eosio/transaction.hpp>
 #include <keccak256/k.c>
 
 namespace zeroevm {
@@ -13,12 +15,84 @@ static constexpr uint8_t PROOF_ZERO_RECEIVER_HASH_OFFSET = 3;
 static constexpr uint8_t PROOF_CREATED_AT_OFFSET = 4;
 static constexpr uint8_t PROOF_EXISTS_OFFSET = 5;
 static constexpr uint32_t MAX_FINALITY_DELAY_SEC = 86400;
+static constexpr uint64_t TELOS_EVM_TESTNET_CHAIN_ID = 41;
+static constexpr uint64_t ZERO_TO_EVM_RELEASE_GAS_LIMIT = 500000;
+static constexpr uint64_t ZERO_TO_EVM_AUTO_RELEASE_PREFIX = 0x7a746f6572656cULL;
+static constexpr uint32_t RELEASE_TO_EVM_HEAD_BYTES = 32 * 5;
+static const std::array<uint8_t, 4> RELEASE_TO_EVM_SELECTOR = {0xb9, 0xa4, 0xd8, 0x96};
 static const std::array<uint8_t, 32> REQUEST_PROOF_STORAGE_SLOT_BYTES = {
     0xf9, 0x81, 0x17, 0x9b, 0xb6, 0xca, 0x7b, 0xac,
     0xd9, 0xc0, 0x9f, 0xc7, 0xee, 0x84, 0xe0, 0x6a,
     0xae, 0xa9, 0xdc, 0x6e, 0x23, 0x31, 0x4f, 0xa0,
     0x13, 0x35, 0xb7, 0x62, 0x68, 0x5e, 0x87, 0xc1
 };
+static const std::array<uint8_t, 32> PROCESSED_ZERO_BURNS_STORAGE_SLOT_BYTES = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06
+};
+
+static uint8_t hex_value(char value) {
+    if (value >= '0' && value <= '9') return static_cast<uint8_t>(value - '0');
+    if (value >= 'a' && value <= 'f') return static_cast<uint8_t>(value - 'a' + 10);
+    if (value >= 'A' && value <= 'F') return static_cast<uint8_t>(value - 'A' + 10);
+    eosio::check(false, "invalid hex character");
+    return 0;
+}
+
+static std::vector<uint8_t> checksum160_bytes(checksum160 value) {
+    auto input = value.extract_as_byte_array();
+    return std::vector<uint8_t>(input.begin(), input.end());
+}
+
+static uint128_t max_uint128() {
+    return static_cast<uint128_t>(0) - 1;
+}
+
+static uint128_t pow10_u128(uint8_t exponent) {
+    uint128_t output = 1;
+    for (uint8_t i = 0; i < exponent; ++i) {
+        eosio::check(output <= max_uint128() / 10, "decimal conversion overflow");
+        output *= 10;
+    }
+    return output;
+}
+
+static void append_uint256_word(std::vector<uint8_t>& output, uint128_t value) {
+    for (uint8_t i = 0; i < 16; ++i) {
+        output.push_back(0);
+    }
+
+    for (int i = 15; i >= 0; --i) {
+        output.push_back(static_cast<uint8_t>((value >> (i * 8)) & 0xff));
+    }
+}
+
+static void append_uint256_word(std::vector<uint8_t>& output, uint64_t value) {
+    append_uint256_word(output, static_cast<uint128_t>(value));
+}
+
+static void append_address_word(std::vector<uint8_t>& output, checksum160 address) {
+    auto address_bytes = address.extract_as_byte_array();
+    for (uint8_t i = 0; i < 12; ++i) {
+        output.push_back(0);
+    }
+    output.insert(output.end(), address_bytes.begin(), address_bytes.end());
+}
+
+static void append_bytes32_word(std::vector<uint8_t>& output, checksum256 value) {
+    auto bytes = value.extract_as_byte_array();
+    output.insert(output.end(), bytes.begin(), bytes.end());
+}
+
+static void append_string_tail(std::vector<uint8_t>& output, const string& value) {
+    append_uint256_word(output, static_cast<uint64_t>(value.size()));
+    output.insert(output.end(), value.begin(), value.end());
+    while (output.size() % 32 != 0) {
+        output.push_back(0);
+    }
+}
 
 zerobridge::zerobridge(name receiver, name code, eosio::datastream<const char*> ds)
     : contract(receiver, code, ds), config(receiver, receiver.value), evmconfig(receiver, receiver.value) {}
@@ -46,6 +120,19 @@ void zerobridge::setdevmode(bool dev_mode) {
     config.set(conf, get_self());
 }
 
+void zerobridge::setevmrelay(name evm_account) {
+    require_admin();
+    eosio::check(eosio::is_account(evm_account), "linked EVM native account does not exist");
+    eosio::check(
+        evm_account == get_self(),
+        "permissionless relay requires the bridge account as linked EVM sender"
+    );
+
+    auto conf = get_config();
+    conf.evm_account = evm_account;
+    config.set(conf, get_self());
+}
+
 void zerobridge::setevmconf(checksum160 evm_bridge, uint32_t finality_delay_sec) {
     require_admin();
     eosio::check(finality_delay_sec <= MAX_FINALITY_DELAY_SEC, "finality delay is too large");
@@ -57,7 +144,16 @@ void zerobridge::setevmconf(checksum160 evm_bridge, uint32_t finality_delay_sec)
         "EVM bridge contract not found in eosio.evm accounts"
     );
 
-    evmconfig.set(evm_config_row{evm_bridge, account->index, finality_delay_sec}, get_self());
+    uint64_t chain_id = evmconfig.exists() ? evmconfig.get().evm_chain_id : TELOS_EVM_TESTNET_CHAIN_ID;
+    evmconfig.set(evm_config_row{evm_bridge, account->index, finality_delay_sec, chain_id}, get_self());
+}
+
+void zerobridge::setevmchain(uint64_t evm_chain_id) {
+    require_admin();
+    eosio::check(evm_chain_id > 0, "EVM chain id must be positive");
+    auto evm_conf = get_evm_config();
+    evm_conf.evm_chain_id = evm_chain_id;
+    evmconfig.set(evm_conf, get_self());
 }
 
 void zerobridge::pause(bool paused) {
@@ -254,14 +350,92 @@ void zerobridge::refundztoe(uint64_t request_id, string reason) {
     ).send();
 }
 
+void zerobridge::relayztoe(uint64_t request_id) {
+    release_ztoe_request(request_id);
+}
+
+void zerobridge::release_ztoe_request(uint64_t request_id) {
+    auto conf = get_config();
+    auto evm_conf = get_evm_config();
+    eosio::check(!conf.paused, "bridge is paused");
+    eosio::check(
+        conf.evm_account == get_self(),
+        "EVM relay account must be the bridge account"
+    );
+
+    ztoe_table requests(get_self(), get_self().value);
+    auto request = requests.require_find(request_id, "request not found");
+    eosio::check(!request->refunded, "request was refunded");
+
+    auto pair = get_active_pair(request->pair_id);
+    eosio::check(request->quantity.is_valid(), "invalid quantity");
+    eosio::check(request->quantity.amount > 0, "quantity must be positive");
+    eosio::check(request->quantity.symbol == pair.zero_symbol, "quantity symbol mismatch");
+    eosio::check(request->quantity.amount >= pair.min_quantity.amount, "quantity below minimum");
+    eosio::check(request->quantity.amount <= pair.max_quantity.amount, "quantity above maximum");
+
+    if (evm_conf.finality_delay_sec > 0) {
+        uint64_t now_sec = time_point_sec(eosio::current_time_point()).sec_since_epoch();
+        eosio::check(
+            request->created_at.sec_since_epoch() + evm_conf.finality_delay_sec <= now_sec,
+            "Zero request is not past finality delay"
+        );
+    }
+
+    auto processed_word = read_evm_storage(evm_conf.evm_bridge_scope, processed_zero_burn_slot(request->burn_id));
+    eosio::check(!checksum256_is_one(processed_word), "Zero burn already released");
+
+    auto linked = get_linked_bridge_evm_account();
+    auto calldata = build_release_calldata(*request, pair);
+    auto raw_tx = rlp::encode_legacy_tx(
+        linked.nonce,
+        read_evm_gas_price(),
+        ZERO_TO_EVM_RELEASE_GAS_LIMIT,
+        checksum160_bytes(evm_conf.evm_bridge),
+        calldata,
+        evm_conf.evm_chain_id
+    );
+    std::optional<checksum160> sender{linked.address};
+
+    eosio::action(
+        eosio::permission_level{get_self(), "active"_n},
+        EVM_SYSTEM_CONTRACT,
+        "raw"_n,
+        std::make_tuple(get_self(), raw_tx, false, sender)
+    ).send();
+}
+
+uint128_t zerobridge::ztoe_auto_release_sender_id(uint64_t request_id) {
+    return (uint128_t(ZERO_TO_EVM_AUTO_RELEASE_PREFIX) << 64) | request_id;
+}
+
+void zerobridge::schedule_ztoe_release(uint64_t request_id) {
+    eosio::transaction tx;
+    tx.actions.emplace_back(
+        eosio::permission_level{get_self(), "active"_n},
+        get_self(),
+        "relayztoe"_n,
+        std::make_tuple(request_id)
+    );
+    tx.delay_sec = 0;
+    tx.send(ztoe_auto_release_sender_id(request_id), get_self(), false);
+}
+
 void zerobridge::ontransfer(name from, name to, asset quantity, string memo) {
     if (from == get_self() || to != get_self()) return;
 
     auto conf = get_config();
     eosio::check(!conf.paused, "bridge is paused");
-    check_evm_address_string(memo);
 
-    auto pair = get_active_pair(get_first_receiver(), quantity.symbol);
+    pairs_table pairs(get_self(), get_self().value);
+    auto by_token_symbol = pairs.get_index<"bytokensym"_n>();
+    uint128_t token_symbol_key = (uint128_t(get_first_receiver().value) << 64) | quantity.symbol.raw();
+    auto pair_itr = by_token_symbol.find(token_symbol_key);
+    if (pair_itr == by_token_symbol.end()) return;
+
+    check_evm_address_string(memo);
+    eosio::check(pair_itr->active, "pair is paused");
+    auto pair = *pair_itr;
     eosio::check(quantity.amount >= pair.min_quantity.amount, "quantity below minimum");
     eosio::check(quantity.amount <= pair.max_quantity.amount, "quantity above maximum");
 
@@ -286,6 +460,8 @@ void zerobridge::ontransfer(name from, name to, asset quantity, string memo) {
         "burn"_n,
         std::make_tuple(get_self(), quantity, string("Zero-to-EVM bridge burn"))
     ).send();
+
+    schedule_ztoe_release(request_id);
 }
 
 zerobridge::config_row zerobridge::get_config() {
@@ -295,6 +471,14 @@ zerobridge::config_row zerobridge::get_config() {
 
 void zerobridge::require_admin() {
     require_auth(get_config().admin);
+}
+
+zerobridge::evm_account zerobridge::get_linked_bridge_evm_account() {
+    auto conf = get_config();
+    evm_account_table accounts(EVM_SYSTEM_CONTRACT, EVM_SYSTEM_CONTRACT.value);
+    auto by_account = accounts.get_index<"byaccount"_n>();
+    auto account = by_account.require_find(conf.evm_account.value, "bridge account has no linked EVM address");
+    return *account;
 }
 
 zerobridge::pair_row zerobridge::get_active_pair(name token_contract, symbol zero_symbol) const {
@@ -321,6 +505,16 @@ void zerobridge::check_evm_address_string(const string& value) {
         bool is_hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
         eosio::check(is_hex, "EVM receiver contains non-hex characters");
     }
+}
+
+checksum160 zerobridge::parse_evm_address_string(const string& value) {
+    check_evm_address_string(value);
+
+    std::array<uint8_t, 20> output = {};
+    for (uint8_t i = 0; i < 20; ++i) {
+        output[i] = static_cast<uint8_t>((hex_value(value[2 + (i * 2)]) << 4) | hex_value(value[3 + (i * 2)]));
+    }
+    return checksum160(output);
 }
 
 checksum256 zerobridge::make_burn_id(name sender, asset quantity, const string& evm_receiver, uint64_t request_id) {
@@ -351,6 +545,12 @@ checksum256 zerobridge::read_evm_storage(uint64_t evm_scope, checksum256 key) co
     return row->value;
 }
 
+checksum256 zerobridge::read_evm_gas_price() const {
+    evm_system_config_singleton evm_system_config(EVM_SYSTEM_CONTRACT, EVM_SYSTEM_CONTRACT.value);
+    eosio::check(evm_system_config.exists(), "eosio.evm config is not set");
+    return evm_system_config.get().gas_price;
+}
+
 checksum256 zerobridge::checksum160_to_padded_checksum256(checksum160 value) {
     std::array<uint8_t, 32> output = {};
     auto input = value.extract_as_byte_array();
@@ -368,6 +568,18 @@ checksum256 zerobridge::evm_request_proof_base_slot(checksum256 evm_request_id) 
 
 checksum256 zerobridge::evm_request_proof_slot(checksum256 evm_request_id, uint8_t offset) {
     return add_storage_slot_offset(evm_request_proof_base_slot(evm_request_id), offset);
+}
+
+checksum256 zerobridge::processed_zero_burn_slot(checksum256 burn_id) {
+    std::array<uint8_t, 64> encoded = {};
+    auto burn_id_bytes = burn_id.extract_as_byte_array();
+    std::copy(burn_id_bytes.begin(), burn_id_bytes.end(), encoded.begin());
+    std::copy(
+        PROCESSED_ZERO_BURNS_STORAGE_SLOT_BYTES.begin(),
+        PROCESSED_ZERO_BURNS_STORAGE_SLOT_BYTES.end(),
+        encoded.begin() + 32
+    );
+    return keccak256_bytes(encoded);
 }
 
 checksum256 zerobridge::keccak256_bytes(const std::array<uint8_t, 64>& input) {
@@ -428,6 +640,44 @@ bool zerobridge::padded_address_equals(checksum256 storage_word, checksum160 add
 checksum256 zerobridge::zero_receiver_hash(name receiver) {
     string value = receiver.to_string();
     return eosio::sha256(value.c_str(), value.size());
+}
+
+uint128_t zerobridge::convert_asset_amount_to_evm(asset quantity, uint8_t evm_decimals) {
+    eosio::check(quantity.is_valid(), "invalid quantity");
+    eosio::check(quantity.amount > 0, "quantity must be positive");
+
+    uint8_t zero_decimals = quantity.symbol.precision();
+    uint128_t amount = static_cast<uint64_t>(quantity.amount);
+
+    if (evm_decimals > zero_decimals) {
+        uint128_t factor = pow10_u128(evm_decimals - zero_decimals);
+        eosio::check(amount <= max_uint128() / factor, "EVM amount overflow");
+        return amount * factor;
+    }
+
+    if (zero_decimals > evm_decimals) {
+        uint128_t factor = pow10_u128(zero_decimals - evm_decimals);
+        eosio::check(amount % factor == 0, "quantity cannot convert to EVM decimals without rounding");
+        return amount / factor;
+    }
+
+    return amount;
+}
+
+std::vector<uint8_t> zerobridge::build_release_calldata(const ztoe_request& request, const pair_row& pair) {
+    checksum160 receiver = parse_evm_address_string(request.evm_receiver);
+    uint128_t evm_amount = convert_asset_amount_to_evm(request.quantity, pair.evm_decimals);
+    string zero_sender = request.sender.to_string();
+
+    std::vector<uint8_t> calldata;
+    calldata.insert(calldata.end(), RELEASE_TO_EVM_SELECTOR.begin(), RELEASE_TO_EVM_SELECTOR.end());
+    append_uint256_word(calldata, request.pair_id);
+    append_uint256_word(calldata, evm_amount);
+    append_address_word(calldata, receiver);
+    append_bytes32_word(calldata, request.burn_id);
+    append_uint256_word(calldata, static_cast<uint64_t>(RELEASE_TO_EVM_HEAD_BYTES));
+    append_string_tail(calldata, zero_sender);
+    return calldata;
 }
 
 } // namespace zeroevm

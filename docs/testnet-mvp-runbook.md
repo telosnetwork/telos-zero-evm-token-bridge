@@ -20,7 +20,7 @@ Outputs:
 
 ## 2. Deploy EVM Mock Tokens
 
-Create `evm/.env.testnet` from `evm/.env.example`.
+Create `packages/evm/.env.testnet` from `packages/evm/.env.example`.
 
 Set at minimum:
 
@@ -33,7 +33,7 @@ MOCK_INITIAL_HOLDER=<funded-test-wallet>
 Deploy mock tokens:
 
 ```sh
-cd evm
+cd packages/evm
 source .env.testnet
 forge script script/DeployMocks.s.sol:DeployMocks \
   --rpc-url "$TELOS_EVM_RPC" \
@@ -165,7 +165,7 @@ Configure the native account that will be used as the EVM sender for Zero-to-EVM
 cleos -u "$TELOS_ZERO_API" push action zerobridge setevmrelay '["zerobridge"]' -p bridgeadmin@active
 ```
 
-The bridge account must have a linked `eosio.evm` wallet and enough EVM TLOS for gas before `relayztoe` can work. The EVM `EvmEscrowBridge` must be deployed with `ZERO_BRIDGE_EVM_ADDRESS` equal to that linked EVM address.
+The bridge account must have a linked `eosio.evm` wallet and enough EVM TLOS for gas before automatic Zero-to-EVM release or `relayztoe` retry can work. The EVM `EvmEscrowBridge` must be deployed with `ZERO_BRIDGE_EVM_ADDRESS` equal to that linked EVM address.
 
 ## 7. Register Native Pairs
 
@@ -199,17 +199,18 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge proveetoz \
 
 1. Transfer `1.000000 ZUSDC` to `zerobridge` with the EVM receiver address in memo.
 2. Confirm a `ztoereqs` row exists and the Zero asset supply decreased.
-3. Call the public native relay action:
+3. Confirm the automatic deferred release runs and `processedZeroBurns(burnId)` becomes true.
+4. If the automatic release fails or stalls, retry with the public native relay action:
 
 ```sh
 cleos -u "$TELOS_ZERO_API" push action zerobridge relayztoe '[<REQUEST_ID>]' -p "$ZERO_TO_EVM_RELAYER"
 ```
 
-4. Confirm `eosio.evm::raw` executed, the EVM bridge emitted `ZeroToEvmReleased`, escrow balance decreased, receiver token balance increased, and `processedZeroBurns(burnId)` is true.
+5. Confirm `eosio.evm::raw` executed, the EVM bridge emitted `ZeroToEvmReleased`, escrow balance decreased, receiver token balance increased, and `processedZeroBurns(burnId)` is true.
 
 ## 10. Configure a Finite Liveness Permission
 
-`proveetoz` and `relayztoe` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those two bridge actions.
+`proveetoz` and `relayztoe` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those two bridge actions. With automatic Zero-to-EVM release enabled, `relayztoe` is primarily a fallback for gas, nonce, paused EVM contract, or missed deferred-transaction cases.
 
 ```sh
 cleos -u "$TELOS_ZERO_API" set account permission relayrunner bridgeops \
@@ -232,7 +233,7 @@ Then configure:
 Copy the relayer config:
 
 ```sh
-cp relayer/src/config.example.json relayer/src/config.local.json
+cp packages/relayer/src/config.example.json packages/relayer/src/config.local.json
 ```
 
 Fill:
@@ -247,7 +248,7 @@ Fill:
 Run:
 
 ```sh
-cd relayer
+cd packages/relayer
 npm test
 node src/reconcile.js src/config.local.json
 node src/scan-evm-requests.js src/config.local.json
