@@ -1,0 +1,22 @@
+{
+  "name": "@telos/zero-evm-bridge-relayer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "reconcile": "node src/reconcile.js src/config.local.json",
+    "scan:evm": "node src/scan-evm-requests.js src/config.local.json",
+    "process:evm": "node src/process-evm-requests.js src/config.local.json",
+    "process:evm:watch": "node src/watch-evm-requests.js src/config.local.json",
+    "process:zero": "node src/process-zero-requests.js src/config.local.json",
+    "process:zero:watch": "node src/watch-zero-requests.js src/config.local.json"
+  },
+  "dependencies": {
+    "eosjs": "^22.1.0",
+    "viem": "^2.53.1"
+  }
+}

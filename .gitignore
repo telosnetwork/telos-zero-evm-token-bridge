@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.local
+.env.testnet
+node_modules/
+build/
+dist/
+cache/
+out/
+broadcast/
+*.local.json
+packages/relayer/src/config.local.json

@@ -1,0 +1,41 @@
+{
+  "evm": {
+    "rpcUrl": "https://rpc.telos.net/evm",
+    "chainId": 40,
+    "escrowBridge": "0x0000000000000000000000000000000000000000",
+    "scanFromBlock": "latest"
+  },
+  "zero": {
+    "apiUrl": "https://mainnet.telos.net",
+    "bridgeAccount": "zerobridge"
+  },
+  "pairs": [
+    {
+      "pairId": 1,
+      "evmSymbol": "USDC.e",
+      "evmToken": "0xF1815bd50389c46847f0Bda824eC8da914045D14",
+      "evmDecimals": 6,
+      "zeroContract": "usdc.bridge",
+      "zeroSymbol": "ZUSDC",
+      "zeroDecimals": 6
+    },
+    {
+      "pairId": 2,
+      "evmSymbol": "USDT",
+      "evmToken": "0x674843C06FF83502ddb4D37c2E09C01cdA38cbc8",
+      "evmDecimals": 6,
+      "zeroContract": "usdt.bridge",
+      "zeroSymbol": "ZUSDT",
+      "zeroDecimals": 6
+    },
+    {
+      "pairId": 3,
+      "evmSymbol": "WBTC",
+      "evmToken": "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c",
+      "evmDecimals": 8,
+      "zeroContract": "wbtc.bridge",
+      "zeroSymbol": "ZWBTC",
+      "zeroDecimals": 8
+    }
+  ]
+}

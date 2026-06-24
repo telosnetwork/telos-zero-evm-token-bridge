@@ -1,0 +1,55 @@
+{
+  "evm": {
+    "rpcUrl": "https://testnet.telos.net/evm",
+    "chainId": 41,
+    "escrowBridge": "0x0000000000000000000000000000000000000000",
+    "scanFromBlock": "latest"
+  },
+  "zero": {
+    "apiUrl": "https://testnet.telos.net",
+    "bridgeAccount": "zerobridge",
+    "processorAction": "auto",
+    "authorization": {
+      "actor": "bridgeadmin",
+      "permission": "active"
+    }
+  },
+  "pairs": [
+    {
+      "pairId": 1,
+      "evmSymbol": "USDC.e",
+      "evmToken": "0x0000000000000000000000000000000000000000",
+      "evmDecimals": 6,
+      "zeroContract": "usdc.bridge",
+      "zeroSymbol": "ZUSDC",
+      "zeroDecimals": 6
+    },
+    {
+      "pairId": 2,
+      "evmSymbol": "USDT",
+      "evmToken": "0x0000000000000000000000000000000000000000",
+      "evmDecimals": 6,
+      "zeroContract": "usdt.bridge",
+      "zeroSymbol": "ZUSDT",
+      "zeroDecimals": 6
+    },
+    {
+      "pairId": 3,
+      "evmSymbol": "WBTC",
+      "evmToken": "0x0000000000000000000000000000000000000000",
+      "evmDecimals": 8,
+      "zeroContract": "wbtc.bridge",
+      "zeroSymbol": "ZWBTC",
+      "zeroDecimals": 8
+    },
+    {
+      "pairId": 4,
+      "evmSymbol": "wEMPIRES",
+      "evmToken": "0x0000000000000000000000000000000000000000",
+      "evmDecimals": 4,
+      "zeroContract": "empirestkn11",
+      "zeroSymbol": "EMPIRES",
+      "zeroDecimals": 4
+    }
+  ]
+}
