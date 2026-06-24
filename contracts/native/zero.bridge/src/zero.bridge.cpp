@@ -2,7 +2,6 @@
 #include "../include/rlp.hpp"
 #include "../include/zero.bridge.hpp"
 #include <algorithm>
-#include <eosio/transaction.hpp>
 #include <keccak256/k.c>
 
 namespace zeroevm {
@@ -17,7 +16,6 @@ static constexpr uint8_t PROOF_EXISTS_OFFSET = 5;
 static constexpr uint32_t MAX_FINALITY_DELAY_SEC = 86400;
 static constexpr uint64_t TELOS_EVM_TESTNET_CHAIN_ID = 41;
 static constexpr uint64_t ZERO_TO_EVM_RELEASE_GAS_LIMIT = 500000;
-static constexpr uint64_t ZERO_TO_EVM_AUTO_RELEASE_PREFIX = 0x7a746f6572656cULL;
 static constexpr uint32_t RELEASE_TO_EVM_HEAD_BYTES = 32 * 5;
 static const std::array<uint8_t, 4> RELEASE_TO_EVM_SELECTOR = {0xb9, 0xa4, 0xd8, 0x96};
 static const std::array<uint8_t, 32> REQUEST_PROOF_STORAGE_SLOT_BYTES = {
@@ -405,22 +403,6 @@ void zerobridge::release_ztoe_request(uint64_t request_id) {
     ).send();
 }
 
-uint128_t zerobridge::ztoe_auto_release_sender_id(uint64_t request_id) {
-    return (uint128_t(ZERO_TO_EVM_AUTO_RELEASE_PREFIX) << 64) | request_id;
-}
-
-void zerobridge::schedule_ztoe_release(uint64_t request_id) {
-    eosio::transaction tx;
-    tx.actions.emplace_back(
-        eosio::permission_level{get_self(), "active"_n},
-        get_self(),
-        "relayztoe"_n,
-        std::make_tuple(request_id)
-    );
-    tx.delay_sec = 0;
-    tx.send(ztoe_auto_release_sender_id(request_id), get_self(), false);
-}
-
 void zerobridge::ontransfer(name from, name to, asset quantity, string memo) {
     if (from == get_self() || to != get_self()) return;
 
@@ -461,7 +443,7 @@ void zerobridge::ontransfer(name from, name to, asset quantity, string memo) {
         std::make_tuple(get_self(), quantity, string("Zero-to-EVM bridge burn"))
     ).send();
 
-    schedule_ztoe_release(request_id);
+    release_ztoe_request(request_id);
 }
 
 zerobridge::config_row zerobridge::get_config() {

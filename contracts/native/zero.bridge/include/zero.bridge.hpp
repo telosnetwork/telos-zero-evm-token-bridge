@@ -194,7 +194,6 @@ private:
     pair_row get_active_pair(name token_contract, symbol zero_symbol) const;
     pair_row get_active_pair(uint64_t pair_id) const;
     void release_ztoe_request(uint64_t request_id);
-    void schedule_ztoe_release(uint64_t request_id);
     checksum256 read_evm_storage(uint64_t evm_scope, checksum256 key) const;
     checksum256 read_evm_gas_price() const;
     static void check_evm_address_string(const string& value);
@@ -210,7 +209,6 @@ private:
     static bool padded_address_equals(checksum256 storage_word, checksum160 address);
     static checksum256 zero_receiver_hash(name receiver);
     static checksum256 make_burn_id(name sender, asset quantity, const string& evm_receiver, uint64_t request_id);
-    static uint128_t ztoe_auto_release_sender_id(uint64_t request_id);
     static uint128_t convert_asset_amount_to_evm(asset quantity, uint8_t evm_decimals);
     static std::vector<uint8_t> build_release_calldata(const ztoe_request& request, const pair_row& pair);
 };

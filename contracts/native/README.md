@@ -7,7 +7,7 @@ This folder contains the native-side MVP contracts.
 
 Current status:
 
-- The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`, then schedules an immediate self-call to release the EVM funds.
+- The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`, burns the Zero asset, and immediately dispatches the EVM release inline from the transfer notification.
 - The EVM-to-Zero path has a public `proveetoz` action that verifies fixed proof slots in the Telos EVM bridge contract through `eosio.evm::accountstate`.
 - The Zero-to-EVM release path uses the same `relayztoe` logic for both automatic release and manual retry. It verifies a burn request and dispatches `releaseToEvm` through `eosio.evm::raw` from the bridge account's linked EVM address.
 - The old `processetoz` action remains gated by `dev_mode` for legacy/manual test harnesses only.
@@ -62,7 +62,7 @@ For automatic Zero-to-EVM release and manual `relayztoe` retries, the bridge acc
 
 - a linked `eosio.evm` account row,
 - enough TLOS on that linked EVM address to pay gas,
-- active permission containing `zerobridge@eosio.code`, because the transfer handler schedules `relayztoe` as a deferred self-transaction and the release sends `eosio.evm::raw` inline as `zerobridge@active`.
+- active permission containing `zerobridge@eosio.code`, because the transfer handler sends `eosio.evm::raw` inline as `zerobridge@active`.
 
 Relayer note:
 

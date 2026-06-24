@@ -7,7 +7,7 @@ It does not decide bridge validity. Its current jobs are:
 - reconcile EVM escrow balances against fresh Zero asset supply,
 - scan `EvmToZeroRequested` logs for testnet operations,
 - push pending EVM-to-Zero requests to the Telos Zero bridge account when a signer is configured,
-- scan native `zero.bridge::ztoereqs` rows and retry the public `relayztoe` action when automatic Zero-to-EVM release stalls,
+- scan native `zero.bridge::ztoereqs` rows and retry the public `relayztoe` action for old or stalled Zero-to-EVM requests,
 - provide a small place to add production watchers around the native `proveetoz` verification path.
 
 ## Setup
@@ -78,7 +78,7 @@ export ZERO_TO_EVM_RELAYER_PRIVATE_KEY="..."
 npm run process:zero:watch
 ```
 
-The Zero bridge contract now schedules an immediate self-call to `relayztoe` from the transfer handler, so this processor is fallback liveness tooling. It defaults to `ZERO_TO_EVM_RELAY_MODE=auto`: it uses the public native `relayztoe` action when the deployed ABI exposes it, otherwise it falls back to the legacy testnet `evm-key` release mode.
+The Zero bridge contract now dispatches Zero-to-EVM release inline from the token transfer handler, so this processor is fallback liveness tooling. It defaults to `ZERO_TO_EVM_RELAY_MODE=auto`: it uses the public native `relayztoe` action when the deployed ABI exposes it, otherwise it falls back to the legacy testnet `evm-key` release mode.
 
 In native mode, the private key only signs the Telos Zero transaction that calls `relayztoe` as a retry. It does not need bridge account authority, and it cannot choose the receiver or amount. The bridge contract reads its own burn row, verifies replay state against `processedZeroBurns`, builds the EVM calldata, and dispatches `eosio.evm::raw`.
 

@@ -58,7 +58,8 @@
       "setEvmConf": "5bfc821619c300483a4f1176ad7ab49258c3b2ac468959185e78eeb0aec6a2d6",
       "setEvmChain": "3de7a0ecce3433bbc8d4d8d8b111ded5428c195b26d1c1406b13f9f053139803",
       "setEvmRelay": "19ea1ef3d171be55b6c2f89e2922e4adf99e264a497d0ccf3ce437e9da623160",
-      "setDevModeFalse": "5cf3f600ffe00b5631546555592bb02d9639f80f4ab797113e47b2c05a95a05e"
+      "setDevModeFalse": "5cf3f600ffe00b5631546555592bb02d9639f80f4ab797113e47b2c05a95a05e",
+      "bridgeSetContractInlineRelease": "06a7263c2cdeb5d4f7d6291e64a46b7402c8b0f28c52af7c64f7c0b3d6908716"
     }
   },
   "relayer": {
@@ -115,7 +116,9 @@
       "evmToZeroDeposit": "6f669cfa8c37bd33a44a5c8ab1942d7de3e90138de44d21bd645225cd499ff56",
       "processOnZero": "9749506dbc093de9dc2ac3735f70438db230a173f869abdbdd55524c969611c6",
       "zeroToEvmBurn": "fe7a250629d158f9f531ea0c287ece825046e2451608bfc0dd78815f66a910f5",
-      "releaseOnEvm": "66e23f26173160b45d57705e37dc6f20f770861b81d9eef6c1c4121a35a204c2"
+      "releaseOnEvm": "66e23f26173160b45d57705e37dc6f20f770861b81d9eef6c1c4121a35a204c2",
+      "inlineZeroToEvmBurn": "30d442a59716d2eef91f552e39010edf7c2dcde62edc41d87c1432afe2c8c9f3",
+      "inlineReleaseOnEvm": "0x702c19fa9063f32cc40dd75a75f13b0b1707dce70fd783953b7f78fe3c641bea"
     },
     "USDT": {
       "evmToZeroDeposit": "420266f4134ec017c7c281a3a698db22a76fb90db64db5e5016bd554299a33e9",

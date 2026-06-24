@@ -199,8 +199,8 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge proveetoz \
 
 1. Transfer `1.000000 ZUSDC` to `zerobridge` with the EVM receiver address in memo.
 2. Confirm a `ztoereqs` row exists and the Zero asset supply decreased.
-3. Confirm the automatic deferred release runs and `processedZeroBurns(burnId)` becomes true.
-4. If the automatic release fails or stalls, retry with the public native relay action:
+3. Confirm the inline release runs in the same user transaction and `processedZeroBurns(burnId)` becomes true.
+4. If an older or stalled request was created without an EVM release, retry with the public native relay action:
 
 ```sh
 cleos -u "$TELOS_ZERO_API" push action zerobridge relayztoe '[<REQUEST_ID>]' -p "$ZERO_TO_EVM_RELAYER"
@@ -210,7 +210,7 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge relayztoe '[<REQUEST_ID>]' -p 
 
 ## 10. Configure a Finite Liveness Permission
 
-`proveetoz` and `relayztoe` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those two bridge actions. With automatic Zero-to-EVM release enabled, `relayztoe` is primarily a fallback for gas, nonce, paused EVM contract, or missed deferred-transaction cases.
+`proveetoz` and `relayztoe` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those two bridge actions. With inline Zero-to-EVM release enabled, `relayztoe` is primarily a fallback for old/stalled requests or operational retry cases.
 
 ```sh
 cleos -u "$TELOS_ZERO_API" set account permission relayrunner bridgeops \
