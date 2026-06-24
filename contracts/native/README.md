@@ -9,8 +9,9 @@ Current status:
 
 - The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`.
 - The EVM-to-Zero path has a public `proveetoz` action that verifies fixed proof slots in the Telos EVM bridge contract through `eosio.evm::accountstate`.
+- The Zero-to-EVM release path has a public `relayztoe` action that verifies a burn request and dispatches `releaseToEvm` through `eosio.evm::raw` from the bridge account's linked EVM address.
 - The old `processetoz` action remains gated by `dev_mode` for legacy/manual test harnesses only.
-- Production must run with `dev_mode = false`, configure `setevmconf`, use `proveetoz` for ordinary EVM-to-Zero processing, and put admin authority under a large governance MSIG.
+- Production must run with `dev_mode = false`, configure `setevmconf` and `setevmrelay`, use `proveetoz`/`relayztoe` for ordinary processing, and put admin authority under a large governance MSIG.
 
 Production proof setup:
 
@@ -18,9 +19,21 @@ Production proof setup:
 cleos -u "$TELOS_ZERO_API" push action zerobridge setevmconf \
   '["<EVM_BRIDGE_20_BYTES>",0]' \
   -p <governance-msig-admin>@active
+
+cleos -u "$TELOS_ZERO_API" push action zerobridge setevmchain \
+  '[41]' \
+  -p <governance-msig-admin>@active
+
+cleos -u "$TELOS_ZERO_API" push action zerobridge setevmrelay \
+  '["zerobridge"]' \
+  -p <governance-msig-admin>@active
 ```
 
 Use `0` finality delay on testnet when instant finality is active. If governance wants an additional operational delay, set it explicitly rather than treating wall-clock delay as the security boundary.
+
+Use chain ID `41` on Telos EVM testnet and `40` on Telos EVM mainnet.
+
+The EVM bridge constructor-fixed `zeroBridge` address must equal the linked EVM address for `zerobridge`; otherwise `relayztoe` will dispatch the call but the EVM contract will reject it with `NotZeroBridge`.
 
 Build requirement:
 
@@ -44,6 +57,16 @@ On macOS, the repo-level helper uses Docker/Colima and the official Linux CDT pa
 Permission note:
 
 The bridge account must be able to call `zero.asset::issue` and `zero.asset::burn` inline. In practice, the bridge account needs its contract `eosio.code` permission configured appropriately, and the fresh asset must use the bridge account as issuer.
+
+For `relayztoe`, the bridge account also needs:
+
+- a linked `eosio.evm` account row,
+- enough TLOS on that linked EVM address to pay gas,
+- active permission containing `zerobridge@eosio.code`, because the public relay action sends `eosio.evm::raw` inline as `zerobridge@active`.
+
+Relayer note:
+
+`proveetoz` and `relayztoe` are intentionally public actions. Production automation should use a finite account permission such as `bridgeops`, linked only to those bridge actions. The key behind that permission improves liveness, but it cannot redirect value because the contract verifies EVM storage or native burn state before it mutates bridge balances.
 
 Production admin note:
 

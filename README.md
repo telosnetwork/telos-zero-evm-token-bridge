@@ -17,19 +17,24 @@ Built now:
 
 - EVM escrow and registry contracts with Foundry tests.
 - Native Telos Zero asset contract for fresh bridge assets.
-- Native Telos Zero bridge contract with `eosio.evm::accountstate` proof verification for EVM-to-Zero deposits.
-- Node operator tools for reconciliation, EVM event scanning, signed Telos Zero request processing, and Zero-to-EVM EVM release processing.
+- Native Telos Zero bridge contract with `eosio.evm::accountstate` proof verification for EVM-to-Zero deposits and permissionless native dispatch for Zero-to-EVM releases through `eosio.evm::raw`.
+- Node operator tools for reconciliation, EVM event scanning, signed Telos Zero request processing, and permissionless Zero-to-EVM relay triggering.
 - Production spec in `zero-evm-bridge-production-spec.md`.
 - Testnet MVP runbook in `docs/testnet-mvp-runbook.md`.
 
 The UI integration lives separately in the Telos Bridge v3 frontend branch.
 
+Testnet live now:
+
+- Native bridge is deployed on Telos testnet with `dev_mode = false`.
+- EVM bridge is deployed with `zeroBridge` set to the bridge account's linked EVM address.
+- Zero-to-EVM release is driven through `relayztoe` and `eosio.evm::raw`; no reusable EVM relayer private key is needed.
+- Hosted testnet relayer uses `tbrgrelay111@bridgeops`, a finite liveness permission linked to the bridge proof/relay actions.
+
 Remaining production gates:
 
-- Production ownership/admin must be handed to a large governance MSIG, not a single signer or developer-held account.
-- Native WASM/ABI must be rebuilt with CDT and re-deployed; the current macOS Docker/Colima VM was unavailable during this pass.
-- The new `proveetoz` path needs chain-level testnet validation against live `eosio.evm::accountstate` rows.
-- Zero-to-EVM release still requires the authorized EVM caller to be replaced with a Zero-governed dispatcher before mainnet.
+- Mainnet ownership/admin must be handed to a large governance MSIG, not a single signer or developer-held account.
+- Mainnet deployment must repeat the linked bridge-account EVM sender setup under MSIG control.
 - External pass-through routes, such as Zero -> Telos EVM -> Base, are intentionally outside the MVP.
 
 ## Packages
@@ -57,16 +62,16 @@ Path: `contracts/native`
 Contracts:
 
 - `zero.asset`: minimal fresh asset contract.
-- `zero.bridge`: Zero-side burn/request tracker plus `proveetoz`, which verifies fixed EVM proof slots from `eosio.evm::accountstate`.
+- `zero.bridge`: Zero-side burn/request tracker plus `proveetoz`, which verifies fixed EVM proof slots from `eosio.evm::accountstate`, and `relayztoe`, which dispatches validated releases through `eosio.evm::raw`.
 
-Build requires Antelope CDT. On this macOS workspace, use the Docker helper:
+Build requires Antelope CDT. On macOS, use the Docker helper:
 
 ```sh
 cd contracts/native
 ../../scripts/build-native-docker.sh
 ```
 
-The verified local build produces `zero.asset.wasm`, `zero.asset.abi`, `zero.bridge.wasm`, and `zero.bridge.abi` in `contracts/native/build`.
+The verified local build produced `zero.asset.wasm`, `zero.asset.abi`, `zero.bridge.wasm`, and `zero.bridge.abi` in `contracts/native/build`.
 
 ### Relayer Tools
 
@@ -81,8 +86,8 @@ Tools:
 - `ZERO_RELAYER_PRIVATE_KEY=... node src/process-evm-requests.js src/config.local.json`
 - `ZERO_RELAYER_PRIVATE_KEY=... npm run process:evm:watch`
 - `node src/process-zero-requests.js src/config.local.json --dry-run`
-- `EVM_RELAYER_PRIVATE_KEY=... node src/process-zero-requests.js src/config.local.json --request-id <id>`
-- `EVM_RELAYER_PRIVATE_KEY=... npm run process:zero:watch`
+- `ZERO_TO_EVM_RELAYER_PRIVATE_KEY=... node src/process-zero-requests.js src/config.local.json --request-id <id>`
+- `ZERO_TO_EVM_RELAYER_PRIVATE_KEY=... npm run process:zero:watch`
 
 Copy `src/config.example.json` for testnet deployments. `src/config.telos-mainnet-assets.example.json` records the current Telos EVM asset addresses for the target mainnet asset set.
 
@@ -100,14 +105,16 @@ Zero to EVM:
 
 1. User signs a Telos Zero transfer of `ZUSDC`, `ZUSDT`, `ZWBTC`, or `EMPIRES` to `zero.bridge` with the EVM receiver address in the memo.
 2. `zero.bridge` records the burn request and burns the bridge asset.
-3. The authorized EVM bridge caller releases escrowed Telos EVM assets through `releaseToEvm`.
-4. Production must ensure the authorized EVM caller is backed by same-chain verification, not an operator oracle.
+3. Any relayer calls `zero.bridge::relayztoe(request_id)`.
+4. `zero.bridge` verifies the burn row, replay state, limits, and finality, then calls `eosio.evm::raw` from the bridge account's linked EVM address to execute `releaseToEvm`.
+5. The relayer key only pays to submit `relayztoe`; it is not trusted to release or redirect funds.
 
 ## Production Gates
 
 - Instant finality is live and stable on testnet.
 - Native verification can prove EVM escrow records from Telos Zero on testnet with `dev_mode = false`.
-- EVM release path can be driven by verified Zero burn state.
+- EVM release path is driven by `relayztoe` and a linked bridge-account EVM sender, with no reusable EVM relayer private key.
+- Hosted relayers use a finite native permission such as `bridgeops`, linked only to `zero.bridge::proveetoz` and `zero.bridge::relayztoe`.
 - Admin/owner authorities are controlled by the production governance MSIG, with separate narrow emergency pause permissions.
 - Daily limits, pause controls, and recovery procedures are reviewed.
 - End-to-end testnet runs cover USDC.e, USDT, and WBTC in both directions.
