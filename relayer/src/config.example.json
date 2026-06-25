@@ -9,9 +9,14 @@
     "apiUrl": "https://testnet.telos.net",
     "bridgeAccount": "zerobridge",
     "processorAction": "auto",
+    "zeroToEvmRelayMode": "auto",
     "authorization": {
       "actor": "bridgeadmin",
-      "permission": "active"
+      "permission": "bridgeops"
+    },
+    "zeroToEvmAuthorization": {
+      "actor": "relayrunner",
+      "permission": "bridgeops"
     }
   },
   "pairs": [
@@ -22,7 +27,8 @@
       "evmDecimals": 6,
       "zeroContract": "usdc.bridge",
       "zeroSymbol": "ZUSDC",
-      "zeroDecimals": 6
+      "zeroDecimals": 6,
+      "reconcileMode": "evm-origin-escrow"
     },
     {
       "pairId": 2,
@@ -31,7 +37,8 @@
       "evmDecimals": 6,
       "zeroContract": "usdt.bridge",
       "zeroSymbol": "ZUSDT",
-      "zeroDecimals": 6
+      "zeroDecimals": 6,
+      "reconcileMode": "evm-origin-escrow"
     },
     {
       "pairId": 3,
@@ -40,7 +47,8 @@
       "evmDecimals": 8,
       "zeroContract": "wbtc.bridge",
       "zeroSymbol": "ZWBTC",
-      "zeroDecimals": 8
+      "zeroDecimals": 8,
+      "reconcileMode": "evm-origin-escrow"
     },
     {
       "pairId": 4,
@@ -49,7 +57,9 @@
       "evmDecimals": 4,
       "zeroContract": "empirestkn11",
       "zeroSymbol": "EMPIRES",
-      "zeroDecimals": 4
+      "zeroDecimals": 4,
+      "reconcileMode": "zero-origin-mint-burn",
+      "zeroInitialSupply": "1000000.0000 EMPIRES"
     }
   ]
 }

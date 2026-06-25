@@ -151,6 +151,22 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge setevmconf '["<EVM_BRIDGE_20_B
 
 The second argument is an optional finality delay in seconds. Use `0` on Telos testnet with instant finality enabled unless governance intentionally chooses an additional operational delay.
 
+Set the EVM chain ID used when `relayztoe` serializes the raw EVM transaction:
+
+```sh
+cleos -u "$TELOS_ZERO_API" push action zerobridge setevmchain '[41]' -p bridgeadmin@active
+```
+
+Use `41` for Telos EVM testnet and `40` for Telos EVM mainnet.
+
+Configure the native account that will be used as the EVM sender for Zero-to-EVM release dispatch:
+
+```sh
+cleos -u "$TELOS_ZERO_API" push action zerobridge setevmrelay '["zerobridge"]' -p bridgeadmin@active
+```
+
+The bridge account must have a linked `eosio.evm` wallet and enough EVM TLOS for gas before automatic Zero-to-EVM release or `relayztoe` retry can work. The EVM `EvmEscrowBridge` must be deployed with `ZERO_BRIDGE_EVM_ADDRESS` equal to that linked EVM address.
+
 ## 7. Register Native Pairs
 
 Use the deployed EVM token addresses from step 2. The `checksum160` value should be the 20-byte EVM address without `0x` if your CLI does not accept `0x` prefixed values.
@@ -183,10 +199,36 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge proveetoz \
 
 1. Transfer `1.000000 ZUSDC` to `zerobridge` with the EVM receiver address in memo.
 2. Confirm a `ztoereqs` row exists and the Zero asset supply decreased.
-3. Call `releaseToEvm` from the authorized test dispatcher address with the recorded burn ID.
-4. Confirm EVM escrow balance decreased and receiver token balance increased.
+3. Confirm the inline release runs in the same user transaction and `processedZeroBurns(burnId)` becomes true.
+4. If an older or stalled request was created without an EVM release, retry with the public native relay action:
 
-## 10. Reconcile
+```sh
+cleos -u "$TELOS_ZERO_API" push action zerobridge relayztoe '[<REQUEST_ID>]' -p "$ZERO_TO_EVM_RELAYER"
+```
+
+5. Confirm `eosio.evm::raw` executed, the EVM bridge emitted `ZeroToEvmReleased`, escrow balance decreased, receiver token balance increased, and `processedZeroBurns(burnId)` is true.
+
+## 10. Configure a Finite Liveness Permission
+
+`proveetoz` and `relayztoe` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those two bridge actions. With inline Zero-to-EVM release enabled, `relayztoe` is primarily a fallback for old/stalled requests or operational retry cases.
+
+```sh
+cleos -u "$TELOS_ZERO_API" set account permission relayrunner bridgeops \
+  '{"threshold":1,"keys":[{"key":"<RELAYER_PUBLIC_KEY>","weight":1}],"accounts":[],"waits":[]}' \
+  active -p relayrunner@active
+
+cleos -u "$TELOS_ZERO_API" set action permission relayrunner zerobridge proveetoz bridgeops -p relayrunner@active
+cleos -u "$TELOS_ZERO_API" set action permission relayrunner zerobridge relayztoe bridgeops -p relayrunner@active
+```
+
+Then configure:
+
+- `zero.authorization.actor = "relayrunner"`
+- `zero.authorization.permission = "bridgeops"`
+- `zero.zeroToEvmAuthorization.actor = "relayrunner"`
+- `zero.zeroToEvmAuthorization.permission = "bridgeops"`
+
+## 11. Reconcile
 
 Copy the relayer config:
 
@@ -201,6 +243,7 @@ Fill:
 - EVM token addresses
 - Zero API URL
 - Zero asset contract accounts
+- `zero.zeroToEvmAuthorization` for the liveness relayer account that will submit `relayztoe`
 
 Run:
 
@@ -209,6 +252,7 @@ cd packages/relayer
 npm test
 node src/reconcile.js src/config.local.json
 node src/scan-evm-requests.js src/config.local.json
+node src/process-zero-requests.js src/config.local.json --dry-run
 ```
 
 ## Exit Criteria
@@ -220,4 +264,5 @@ node src/scan-evm-requests.js src/config.local.json
 - WBTC mock completes both directions with 8-decimal accounting.
 - Reconciliation reports `OK` after each completed round trip.
 - `proveetoz` succeeds with `dev_mode = false` by reading live `eosio.evm::accountstate` storage.
-- All remaining operator-only assumptions are listed before any production design review, especially the Zero-to-EVM dispatcher.
+- `relayztoe` succeeds from a non-bridge relayer account, with the EVM release sent from the bridge account's linked EVM address.
+- All remaining operator-only assumptions are listed before any production design review.

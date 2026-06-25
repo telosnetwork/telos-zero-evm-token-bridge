@@ -6,8 +6,8 @@
     "evmChainId": 41
   },
   "deployer": {
-    "zeroAccount": "trustlessbrg",
-    "linkedEvmAddress": "0xb8e53cb5e4f644c2b817a5dea7b2bcce7c8c9056"
+    "zeroAccount": "tbridgetest1",
+    "linkedEvmAddress": "0xeE674533C2E669e69f89dc0758Dc36E4C2B7b7AF"
   },
   "native": {
     "bridgeAccount": "tbridgetest1",
@@ -15,7 +15,7 @@
     "ownerAuthority": "trustlessbrg@owner",
     "ownerAuthorityTransaction": "bf002a99c17b46e5601b9daacbf79d08d8eac6501b89ef84de80a4469d8ec3b2",
     "admin": "trustlessbrg",
-    "devMode": true,
+    "devMode": false,
     "pairs": [
       {
         "pairId": 1,
@@ -39,11 +39,11 @@
         "pairId": 4,
         "model": "zero-origin-mint-burn",
         "zeroSymbol": "4,EMPIRES",
-        "evmToken": "0x5969cF2b00ABeA4C456033059134e29555493A0b"
+        "evmToken": "0xe9700D4b1560A74030c92D888f64a84ceB9FaA4c"
       }
     ],
     "transactions": {
-      "bridgeSetContract": "5cf5fbb9ada382dbde95daa329d07473ae4d12274605f52b9837d63134c426bd",
+      "bridgeSetContract": "2575768f02fdb5bc480d2cd05670e0dd9326b7dbf7b0c1ee707e8a90584fb6e7",
       "bridgeInit": "6c60442106bd15a02da629b0339176a1dab42ec8a757613b5fd95974efcf3dc0",
       "tokenSetContract": "ccc376bbbdeec4233420c7e1ddb31c775669deb5e66622deb1cf55b760170d44",
       "createZUSDC": "5f6aeb2fe9e64be58525de090eaed7bf7a857d0c4b4699f5ae079d2925cfcf1b",
@@ -54,46 +54,71 @@
       "addPair1": "21f8275b4d357cbedb85166c7b3fd508d8c24500b560af3e58dadf84054f8386",
       "addPair2": "4ddb0fc46542ff059ffc009d91cdb0493682ba609d376e08d5655888544e0d74",
       "addPair3": "0f54eaee0e2cfe3a0855f8f2a8b9c6bab3aafb9cea89c76d8e228ece89bf6ccc",
-      "addPair4": "7e8427c47eb21bbfd294788ad1998a8e56124694e3d72b57a9b83a8974529ecb"
+      "addPair4": "7e8427c47eb21bbfd294788ad1998a8e56124694e3d72b57a9b83a8974529ecb",
+      "setEvmConf": "5bfc821619c300483a4f1176ad7ab49258c3b2ac468959185e78eeb0aec6a2d6",
+      "setEvmChain": "3de7a0ecce3433bbc8d4d8d8b111ded5428c195b26d1c1406b13f9f053139803",
+      "setEvmRelay": "19ea1ef3d171be55b6c2f89e2922e4adf99e264a497d0ccf3ce437e9da623160",
+      "setDevModeFalse": "5cf3f600ffe00b5631546555592bb02d9639f80f4ab797113e47b2c05a95a05e",
+      "bridgeSetContractInlineRelease": "06a7263c2cdeb5d4f7d6291e64a46b7402c8b0f28c52af7c64f7c0b3d6908716"
+    }
+  },
+  "relayer": {
+    "account": "tbrgrelay111",
+    "permission": "bridgeops",
+    "linkedActions": [
+      "tbridgetest1::proveetoz",
+      "tbridgetest1::relayztoe"
+    ],
+    "transactions": {
+      "createAccountAndResources": "daa8975aa3f3a7bcb0dc073112f8f8d5d04ea2c8da32c3af380d09b4462c4e4b",
+      "setBridgeopsPermission": "88710c28f69a0d8ef4aa97351a553557d9ad75e60d2f5330e170ca20b743d16f",
+      "linkProveEtoz": "a4eb00ac5c01ade35641a96779f0098cf58daacfce49dd6bbac0061a392e8b9a",
+      "linkRelayZtoe": "f571035933ce044f0d67aa8482ebce3906c22a387c0c6ad2e1e756fd11e7e471",
+      "removeTrustlessbrgBridgeopsProveLink": "fbf7cf595827959f01898394afc4b58643cd0dc6796159666541b273d593886e",
+      "removeTrustlessbrgBridgeopsRelayLink": "d1ba8e6f1c0616166216688df0c90dda7d399ae04f408bc30df7e7ffb0848940",
+      "deleteTrustlessbrgBridgeopsPermission": "d99691f4739b8b844076626d46fb4230ac4f0e457edcb1317ac65e8fd6a3737b"
     }
   },
   "evm": {
-    "registry": "0x182F0a5C280E22e06dE258e84Fb9e38a94617873",
-    "bridge": "0xAF71Eb4F7AeFd6496D28D782380cd4B9B02cf667",
+    "registry": "0xb7f76015A55745AdF226637E38A02e2C96d9CcE0",
+    "bridge": "0xa48632f83143CA26FE43B600Ee65541032dB974a",
     "tokens": {
       "USDC": "0xbA18d65382E4f55235c1cD74EBfBDFDB3DC141Fa",
       "USDT": "0x07d5F5E420546036645eC689d2B28232B16B9595",
       "WBTC": "0x93f360be1f1B3D11a4DA7FD19b4F69006AebE08A",
-      "wEMPIRES": "0x5969cF2b00ABeA4C456033059134e29555493A0b"
+      "wEMPIRES": "0xe9700D4b1560A74030c92D888f64a84ceB9FaA4c"
     },
     "transactions": {
       "deployUSDC": "ca2f518e065d3553a037f5515b715b4c9e960580263107f59a17e1b3fb54ba59",
       "deployUSDT": "b67945c95ffaae303e5501616dcc42de8cc68b08dc302c9c9247dec59f04ace1",
       "deployWBTC": "3e29e007dbddcaa3ce7de6104380f3f6a91d9b2ae0689fad8193ba663d2d8d45",
-      "deployWEMPIRES": "bd05bac05b96bed50a2354b070371f583757be1b25ec53d9ca22f4de249fd4c2",
-      "deployRegistry": "4ea7aed22efeafe4a8d01339281540f43474c9674ef9ee72897c08c8cded3ae8",
-      "deployBridge": "051cd8854c1dfd47b22900603fd81d4c88b99623f4674ac94b57d2265aad697f",
-      "mintUSDC": "dba3ddd6a77c48c2bb42256dc85f8cc62765f32e8a3734a21ccd9bdcc0d065c5",
-      "mintUSDT": "2ac9639a39d8b40c7178ee6132f787af9c0f711370ef6c8ab20b0ac88490ce48",
-      "mintWBTC": "e6a9645ca7fe403568394d2393ded6147a14f8df1e030caaa198c2e06d8d0a19",
-      "setWEMPIRESBridge": "fd98ccfeabe66933082621b28f3f021bdbc99ae3b8195de4bd4b61a4988fa84d",
-      "registerUSDC": "12515040d70f94914d92c2bbfec99baee97efd6dba3e5363e0a4f904a2755d43",
-      "registerUSDT": "c2e78c9009f3367a7ce0343f2a3ba53e64c888056fd58dbb1886a0098e1e4ffa",
-      "registerWBTC": "c65cb2be3ff7b2fef105c55daf97f556ad9a18d00ad07daf9b96bdda6e55eae1",
-      "registerEMPIRES": "20cd54f8e69b03f9d59f772f9327ece8f769969fe22f565c10fa41d65d19bb8a"
+      "deployWEMPIRES": "ea59c80caee25e98f5a83f04164e7a5c47d98242303ec04b4c9fd70476bf5b3e",
+      "deployRegistry": "0a0530d8479cd7fb135891dbea9833ff2b1613236bb7ffa5054d8adbb242e0ae",
+      "deployBridge": "7ff8e7537d513941a60e464d02c85e7d794e7b70e64f12af4b1485944edc2317",
+      "mintUSDC": "7aaa26bbfa65d0d29a9ddb2c30e6dce3ed7c7f8e8630d8e45a932a45048f64e3",
+      "mintUSDT": "23ed50ccba99503ff8d1c8261c0a7aa0de5e39adc40b9dd6e1133760bc33fb7c",
+      "mintWBTC": "8a23d002073a8a902bb6b4c04cfd1cb9ca25239b76961be5d3ebeb02a68633b0",
+      "setWEMPIRESBridge": "2db7e7ec35f73459d007b1ab5217f51b1dcbead5bf1ebb9cfd40847bf539af86",
+      "registerUSDC": "a71f04c66ed5f8c599ad5cce088d2457cc2eca9ab4168458200a5922a5129084",
+      "registerUSDT": "2c6c4769985aac03c1661f37192095ba982dc8553fb04f70d3f19c113374ccc8",
+      "registerWBTC": "2e6b867f9aae2de6978f4460c9e48082eb2f8d2c1a2a9b5e9cfc253d1b270da7",
+      "registerEMPIRES": "092cf9e65023aed8cf7da08ad5e081b4eec569a2fe0ce053fc9a540c8c46bab7"
     }
   },
   "notes": [
     "USDC, USDT, and WBTC are EVM-origin testnet backing assets represented by ZUSDC, ZUSDT, and ZWBTC on Telos Zero.",
     "EMPIRES is a Zero-origin test asset represented by mint/burn wEMPIRES on Telos EVM.",
-    "This deployed snapshot still has native bridge dev_mode enabled; the current source now includes proveetoz EVM proof verification and needs a fresh WASM/EVM redeploy before this manifest is production-mode."
+    "Native bridge dev_mode is disabled on testnet; EVM-to-Zero processing should use proveetoz.",
+    "The current testnet EVM bridge zeroBridge and owner are the tbridgetest1 linked EVM address, so Zero-to-EVM release is driven through the native bridge account via eosio.evm::raw."
   ],
   "smokeTests": {
     "USDC": {
       "evmToZeroDeposit": "6f669cfa8c37bd33a44a5c8ab1942d7de3e90138de44d21bd645225cd499ff56",
       "processOnZero": "9749506dbc093de9dc2ac3735f70438db230a173f869abdbdd55524c969611c6",
       "zeroToEvmBurn": "fe7a250629d158f9f531ea0c287ece825046e2451608bfc0dd78815f66a910f5",
-      "releaseOnEvm": "66e23f26173160b45d57705e37dc6f20f770861b81d9eef6c1c4121a35a204c2"
+      "releaseOnEvm": "66e23f26173160b45d57705e37dc6f20f770861b81d9eef6c1c4121a35a204c2",
+      "inlineZeroToEvmBurn": "30d442a59716d2eef91f552e39010edf7c2dcde62edc41d87c1432afe2c8c9f3",
+      "inlineReleaseOnEvm": "0x702c19fa9063f32cc40dd75a75f13b0b1707dce70fd783953b7f78fe3c641bea"
     },
     "USDT": {
       "evmToZeroDeposit": "420266f4134ec017c7c281a3a698db22a76fb90db64db5e5016bd554299a33e9",
