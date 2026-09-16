@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Owned} from "./utils/Owned.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 
 contract BridgeRegistry is Owned {
     error InvalidToken();
@@ -79,8 +80,10 @@ contract BridgeRegistry is Owned {
         uint256 dailyLimit,
         bool mintBurn
     ) internal returns (uint256 pairId) {
-        if (evmToken == address(0)) revert InvalidToken();
-        if (evmDecimals > 36 || zeroDecimals > 36) revert InvalidDecimals();
+        if (evmToken.code.length == 0) revert InvalidToken();
+        if (evmDecimals > 36 || zeroDecimals > 18 || IERC20(evmToken).decimals() != evmDecimals) {
+            revert InvalidDecimals();
+        }
         if (zeroAssetId == bytes32(0)) revert InvalidToken();
         if (minAmount == 0 || maxAmount < minAmount || dailyLimit < maxAmount) revert InvalidLimits();
         if (pairByEvmToken[evmToken] != 0) revert TokenAlreadyRegistered();

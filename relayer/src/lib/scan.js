@@ -3,7 +3,7 @@ import { EvmRpc } from "./rpc.js";
 
 const DEFAULT_MAX_BLOCK_RANGE = 90_000n;
 
-export async function scanEvmRequests(config) {
+export async function scanEvmRequests(config, range = {}) {
   const rpc = new EvmRpc(config.evm.rpcUrl);
   const chainId = await rpc.chainId();
 
@@ -12,13 +12,12 @@ export async function scanEvmRequests(config) {
   }
 
   const latestBlock = await rpc.blockNumber();
-  const fromBlock = parseBlockNumber(config.evm.scanFromBlock ?? "latest", latestBlock);
-  const toBlock = parseBlockNumber(config.evm.scanToBlock ?? "latest", latestBlock);
-  if (fromBlock > toBlock) {
-    throw new Error(`scanFromBlock ${toHex(fromBlock)} is after scanToBlock ${toHex(toBlock)}`);
-  }
+  if (config.evm.scanFromBlock === "latest") throw new Error("scanFromBlock must be a fixed deployment block or earliest, not latest");
+  const fromBlock = parseBlockNumber(range.fromBlock ?? config.evm.scanFromBlock ?? 0, latestBlock);
+  const toBlock = minBigInt(parseBlockNumber(range.toBlock ?? config.evm.scanToBlock ?? "latest", latestBlock), latestBlock);
 
   const maxRange = BigInt(config.evm.maxLogRange ?? DEFAULT_MAX_BLOCK_RANGE);
+  if (maxRange <= 0n) throw new Error("maxLogRange must be positive");
   const logs = [];
 
   for (let start = fromBlock; start <= toBlock; start += maxRange + 1n) {
@@ -45,10 +44,10 @@ export async function scanEvmRequests(config) {
 export function parseBlockNumber(value, latestBlock) {
   if (value === undefined || value === null || value === "" || value === "latest") return latestBlock;
   if (value === "earliest") return 0n;
-  if (typeof value === "number") return BigInt(value);
-  if (typeof value === "bigint") return value;
-  if (/^0x[0-9a-fA-F]+$/.test(value)) return BigInt(value);
-  if (/^[0-9]+$/.test(value)) return BigInt(value);
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === "bigint" && value >= 0n) return value;
+  if (typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value)) return BigInt(value);
+  if (typeof value === "string" && /^[0-9]+$/.test(value)) return BigInt(value);
   throw new Error(`invalid block number: ${value}`);
 }
 

@@ -3,7 +3,7 @@
     "rpcUrl": "https://rpc.telos.net/evm",
     "chainId": 40,
     "escrowBridge": "0x0000000000000000000000000000000000000000",
-    "scanFromBlock": "latest"
+    "scanFromBlock": 0
   },
   "zero": {
     "apiUrl": "https://mainnet.telos.net",

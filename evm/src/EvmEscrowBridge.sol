@@ -23,6 +23,9 @@ contract EvmEscrowBridge is Owned, ReentrancyGuard {
     error InvalidProofOffset();
     error DailyLimitExceeded();
     error ZeroBurnAlreadyProcessed();
+    error UnsupportedTokenBehavior();
+    error InvalidRequest();
+    error NotRequestSender();
 
     bytes32 public constant REQUEST_PROOF_STORAGE_SLOT =
         0xf981179bb6ca7bacd9c09fc7ee84e06aaea9dc6e23314fa01335b762685e87c1;
@@ -55,8 +58,12 @@ contract EvmEscrowBridge is Owned, ReentrancyGuard {
     mapping(uint256 requestId => EvmToZeroRequest request) public evmToZeroRequests;
     mapping(bytes32 zeroBurnId => bool processed) public processedZeroBurns;
     mapping(uint256 pairId => mapping(uint256 day => uint256 amount)) public dailyDeposits;
+    // Append storage: native code reads processedZeroBurns at its existing slot 6.
+    mapping(uint256 pairId => mapping(uint256 day => uint256 amount)) public dailyReleases;
 
     event PausedSet(bool paused);
+    event DepositRefundRequested(uint256 indexed requestId, bytes32 indexed requestHash);
+    event DepositRefunded(uint256 indexed requestId, bytes32 indexed requestHash);
     event EvmToZeroRequested(
         uint256 indexed requestId,
         uint256 indexed pairId,
@@ -98,7 +105,7 @@ contract EvmEscrowBridge is Owned, ReentrancyGuard {
     {
         BridgeRegistry.Pair memory pair = registry.requireActivePair(pairId);
         _checkAmount(pair, amount);
-        if (bytes(zeroReceiver).length == 0 || bytes(zeroReceiver).length > 64) revert InvalidReceiver();
+        if (!_isCanonicalZeroName(bytes(zeroReceiver))) revert InvalidReceiver();
 
         _consumeDailyLimit(pairId, pair.dailyLimit, amount);
 
@@ -108,9 +115,13 @@ contract EvmEscrowBridge is Owned, ReentrancyGuard {
             abi.encode(block.chainid, address(this), requestId, pairId, msg.sender, zeroReceiverHash, amount)
         );
 
-        IERC20(pair.evmToken).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20 token = IERC20(pair.evmToken);
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        if (token.balanceOf(address(this)) != balanceBefore + amount) revert UnsupportedTokenBehavior();
         if (pair.mintBurn) {
             IBridgeMintBurnERC20(pair.evmToken).burn(amount);
+            if (token.balanceOf(address(this)) != balanceBefore) revert UnsupportedTokenBehavior();
         }
 
         evmToZeroRequests[requestId] = EvmToZeroRequest({
@@ -157,21 +168,89 @@ contract EvmEscrowBridge is Owned, ReentrancyGuard {
     ) external nonReentrant whenNotPaused onlyZeroBridge {
         BridgeRegistry.Pair memory pair = registry.requireActivePair(pairId);
         _checkAmount(pair, amount);
-        if (receiver == address(0) || zeroBurnId == bytes32(0)) revert InvalidReceiver();
+        if (receiver == address(0) || receiver == address(this) || zeroBurnId == bytes32(0)) revert InvalidReceiver();
         if (processedZeroBurns[zeroBurnId]) revert ZeroBurnAlreadyProcessed();
 
+        uint256 day = block.timestamp / 1 days;
+        uint256 nextAmount = dailyReleases[pairId][day] + amount;
+        if (nextAmount > pair.dailyLimit) revert DailyLimitExceeded();
+        dailyReleases[pairId][day] = nextAmount;
+
         processedZeroBurns[zeroBurnId] = true;
-        if (pair.mintBurn) {
-            IBridgeMintBurnERC20(pair.evmToken).mint(receiver, amount);
-        } else {
-            IERC20(pair.evmToken).safeTransfer(receiver, amount);
-        }
+        _pay(pair, receiver, amount);
 
         emit ZeroToEvmReleased(zeroBurnId, pairId, receiver, amount, zeroSender);
     }
 
     function _checkAmount(BridgeRegistry.Pair memory pair, uint256 amount) internal pure {
         if (amount < pair.minAmount || amount > pair.maxAmount) revert InvalidAmount();
+        // Match the native uint128 conversion and Antelope asset range exactly.
+        if (amount > type(uint128).max) revert InvalidAmount();
+        uint256 nativeAmount = amount;
+        if (pair.evmDecimals > pair.zeroDecimals) {
+            uint256 factor = 10 ** (pair.evmDecimals - pair.zeroDecimals);
+            if (amount % factor != 0) revert InvalidAmount();
+            nativeAmount = amount / factor;
+        } else if (pair.zeroDecimals > pair.evmDecimals) {
+            nativeAmount = amount * 10 ** (pair.zeroDecimals - pair.evmDecimals);
+        }
+        if (nativeAmount == 0 || nativeAmount > (uint256(1) << 62) - 1) revert InvalidAmount();
+    }
+
+    // Only the depositor can request cancellation. The native bridge must then
+    // prove that it has never issued this request before returning funds.
+    function requestDepositRefund(uint256 requestId) external nonReentrant {
+        EvmToZeroRequest storage request = evmToZeroRequests[requestId];
+        if (request.id == 0 || requestProofStatus(request.requestHash) != 1) revert InvalidRequest();
+        if (msg.sender != request.sender) revert NotRequestSender();
+        _setProofStatus(request.requestHash, 2);
+        emit DepositRefundRequested(requestId, request.requestHash);
+    }
+
+    function refundDeposit(uint256 requestId, bytes32 requestHash) external nonReentrant onlyZeroBridge {
+        EvmToZeroRequest storage request = evmToZeroRequests[requestId];
+        if (request.id == 0 || request.requestHash != requestHash || requestProofStatus(requestHash) != 2) {
+            revert InvalidRequest();
+        }
+        _setProofStatus(requestHash, 3);
+        // Recovery remains available while new transfers/pairs are paused.
+        _pay(registry.getPair(request.pairId), request.sender, request.amount);
+        emit DepositRefunded(requestId, requestHash);
+    }
+
+    // 0: unknown; 1: mintable; 2: cancellation requested; 3: refunded.
+    function requestProofStatus(bytes32 requestHash) public view returns (uint256 status) {
+        bytes32 slot = requestProofSlot(requestHash, 5);
+        assembly { status := sload(slot) }
+    }
+
+    function _setProofStatus(bytes32 requestHash, uint256 status) internal {
+        bytes32 slot = requestProofSlot(requestHash, 5);
+        assembly { sstore(slot, status) }
+    }
+
+    function _pay(BridgeRegistry.Pair memory pair, address receiver, uint256 amount) internal {
+        IERC20 token = IERC20(pair.evmToken);
+        uint256 receiverBefore = token.balanceOf(receiver);
+        if (pair.mintBurn) {
+            IBridgeMintBurnERC20(pair.evmToken).mint(receiver, amount);
+        } else {
+            uint256 escrowBefore = token.balanceOf(address(this));
+            token.safeTransfer(receiver, amount);
+            if (token.balanceOf(address(this)) + amount != escrowBefore) revert UnsupportedTokenBehavior();
+        }
+        if (token.balanceOf(receiver) != receiverBefore + amount) revert UnsupportedTokenBehavior();
+    }
+
+    function _isCanonicalZeroName(bytes memory value) internal pure returns (bool) {
+        if (value.length == 0 || value.length > 13 || value[value.length - 1] == 0x2e) return false;
+        for (uint256 i; i < value.length; ++i) {
+            bytes1 c = value[i];
+            bool digit = c >= 0x31 && c <= 0x35;
+            bool letter = c >= 0x61 && c <= (i == 12 ? bytes1(0x6a) : bytes1(0x7a));
+            if (c != 0x2e && !digit && !letter) return false;
+        }
+        return true;
     }
 
     function _requireNotPaused() internal view {
@@ -227,6 +306,6 @@ contract EvmEscrowBridge is Owned, ReentrancyGuard {
             existsWord := sload(add(baseSlot, 5))
         }
 
-        proof.exists = existsWord != 0;
+        proof.exists = existsWord == 1;
     }
 }

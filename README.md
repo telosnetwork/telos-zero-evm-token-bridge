@@ -13,6 +13,8 @@ The bridge is designed around the fact that Telos Zero and Telos EVM share the s
 
 ## Status
 
+The source includes the [September 2026 audit fixes](docs/audit-remediation.md), with regression tests and rollout requirements. Existing deployment records describe older contracts; these changes have not been deployed. The EVM fixes require new contracts and a reviewed migration.
+
 Built now:
 
 - EVM escrow and registry contracts with Foundry tests.
@@ -107,14 +109,15 @@ Zero to EVM:
 2. `zero.bridge` records the burn request and burns the bridge asset.
 3. Any relayer calls `zero.bridge::relayztoe(request_id)`.
 4. `zero.bridge` verifies the burn row, replay state, limits, and finality, then calls `eosio.evm::raw` from the bridge account's linked EVM address to execute `releaseToEvm`.
-5. The relayer key only pays to submit `relayztoe`; it is not trusted to release or redirect funds.
+5. A self-authorized native check verifies EVM completion; failure rolls back the native transaction and transactional EVM changes. With a positive finality delay, the burn remains pending until a later eligible `relayztoe`.
+6. The relayer key only pays to submit `relayztoe`; it is not trusted to release or redirect funds.
 
 ## Production Gates
 
 - Instant finality is live and stable on testnet.
 - Native verification can prove EVM escrow records from Telos Zero on testnet with `dev_mode = false`.
 - EVM release path is driven by `relayztoe` and a linked bridge-account EVM sender, with no reusable EVM relayer private key.
-- Hosted relayers use a finite native permission such as `bridgeops`, linked only to `zero.bridge::proveetoz` and `zero.bridge::relayztoe`.
+- Hosted relayers use a finite native permission such as `bridgeops`, linked only to `zero.bridge::proveetoz`, `zero.bridge::relayztoe`, and `zero.bridge::refundetoz`.
 - Admin/owner authorities are controlled by the production governance MSIG, with separate narrow emergency pause permissions.
 - Daily limits, pause controls, and recovery procedures are reviewed.
 - End-to-end testnet runs cover USDC.e, USDT, and WBTC in both directions.

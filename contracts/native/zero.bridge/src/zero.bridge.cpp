@@ -87,9 +87,7 @@ static void append_bytes32_word(std::vector<uint8_t>& output, checksum256 value)
 static void append_string_tail(std::vector<uint8_t>& output, const string& value) {
     append_uint256_word(output, static_cast<uint64_t>(value.size()));
     output.insert(output.end(), value.begin(), value.end());
-    while (output.size() % 32 != 0) {
-        output.push_back(0);
-    }
+    output.insert(output.end(), (32 - value.size() % 32) % 32, 0);
 }
 
 zerobridge::zerobridge(name receiver, name code, eosio::datastream<const char*> ds)
@@ -114,6 +112,7 @@ void zerobridge::setadmin(name admin) {
 void zerobridge::setdevmode(bool dev_mode) {
     require_admin();
     auto conf = get_config();
+    eosio::check(!dev_mode || conf.dev_mode, "dev mode cannot be re-enabled after disabling");
     conf.dev_mode = dev_mode;
     config.set(conf, get_self());
 }
@@ -141,6 +140,12 @@ void zerobridge::setevmconf(checksum160 evm_bridge, uint32_t finality_delay_sec)
         checksum160_to_padded_checksum256(evm_bridge),
         "EVM bridge contract not found in eosio.evm accounts"
     );
+    eosio::check(!account->code.empty(), "EVM bridge address has no contract code");
+    if (evmconfig.exists()) {
+        auto previous = evmconfig.get();
+        eosio::check(previous.evm_bridge == evm_bridge && previous.evm_bridge_scope == account->index,
+                     "EVM bridge identity is fixed; migrate with a new native bridge");
+    }
 
     uint64_t chain_id = evmconfig.exists() ? evmconfig.get().evm_chain_id : TELOS_EVM_TESTNET_CHAIN_ID;
     evmconfig.set(evm_config_row{evm_bridge, account->index, finality_delay_sec, chain_id}, get_self());
@@ -174,6 +179,7 @@ void zerobridge::addpair(
     eosio::check(pair_id > 0, "pair id must be positive");
     eosio::check(eosio::is_account(token_contract), "token contract does not exist");
     eosio::check(zero_symbol.is_valid(), "invalid zero symbol");
+    eosio::check(zero_symbol.precision() <= 18, "native precision exceeds supported range");
     eosio::check(evm_decimals <= 36, "invalid EVM decimals");
     eosio::check(min_quantity.is_valid() && max_quantity.is_valid(), "invalid limits");
     eosio::check(min_quantity.symbol == zero_symbol && max_quantity.symbol == zero_symbol, "limit symbol mismatch");
@@ -283,11 +289,11 @@ void zerobridge::proveetoz(
     );
     eosio::check(stored_pair_id == pair_id, "EVM pair id mismatch");
 
-    auto stored_amount = checksum256_to_uint64(
+    auto stored_amount = checksum256_to_uint128(
         read_evm_storage(evm_conf.evm_bridge_scope, evm_request_proof_slot(evm_request_id, PROOF_AMOUNT_OFFSET)),
         "stored EVM amount is too large"
     );
-    eosio::check(stored_amount == static_cast<uint64_t>(quantity.amount), "EVM amount mismatch");
+    eosio::check(stored_amount == convert_asset_amount_to_evm(quantity, pair.evm_decimals), "EVM amount mismatch");
 
     auto stored_sender = read_evm_storage(evm_conf.evm_bridge_scope, evm_request_proof_slot(evm_request_id, PROOF_SENDER_OFFSET));
     eosio::check(padded_address_equals(stored_sender, evm_sender), "EVM sender mismatch");
@@ -331,7 +337,14 @@ void zerobridge::refundztoe(uint64_t request_id, string reason) {
     ztoe_table requests(get_self(), get_self().value);
     auto itr = requests.require_find(request_id, "request not found");
     eosio::check(!itr->refunded, "request already refunded");
-    eosio::check(reason.size() <= 256, "reason has more than 256 bytes");
+    eosio::check(reason.size() <= 236, "refund reason is too long");
+    ztoe_status_table statuses(get_self(), get_self().value);
+    auto status = statuses.find(request_id);
+    eosio::check(status == statuses.end() || (!status->dispatching && !status->completed),
+                 "request is dispatching or completed");
+    auto evm_conf = get_evm_config();
+    eosio::check(!checksum256_is_one(read_evm_storage(evm_conf.evm_bridge_scope, processed_zero_burn_slot(itr->burn_id))),
+                 "Zero burn already released");
 
     pairs_table pairs(get_self(), get_self().value);
     auto pair = pairs.require_find(itr->pair_id, "pair not found");
@@ -350,6 +363,57 @@ void zerobridge::refundztoe(uint64_t request_id, string reason) {
 
 void zerobridge::relayztoe(uint64_t request_id) {
     release_ztoe_request(request_id);
+}
+
+void zerobridge::checkrelease(uint64_t request_id) {
+    require_auth(get_self());
+    ztoe_table requests(get_self(), get_self().value);
+    auto request = requests.require_find(request_id, "request not found");
+    eosio::check(!request->refunded, "request was refunded");
+    ztoe_status_table statuses(get_self(), get_self().value);
+    auto status = statuses.require_find(request_id, "release was not dispatched");
+    eosio::check(status->dispatching && !status->completed, "release is not in flight");
+    auto evm_conf = get_evm_config();
+    eosio::check(checksum256_is_one(read_evm_storage(evm_conf.evm_bridge_scope, processed_zero_burn_slot(request->burn_id))),
+                 "EVM release failed; rolling back native transaction");
+    statuses.modify(status, eosio::same_payer, [&](auto& row) {
+        row.dispatching = false;
+        row.completed = true;
+    });
+}
+
+void zerobridge::refundetoz(uint64_t evm_request_number, checksum256 evm_request_id) {
+    auto evm_conf = get_evm_config();
+    etoz_table requests(get_self(), get_self().value);
+    auto by_evm_request = requests.get_index<"byevmreq"_n>();
+    eosio::check(by_evm_request.find(evm_request_id) == by_evm_request.end(), "EVM request already processed");
+    auto state = checksum256_to_uint64(
+        read_evm_storage(evm_conf.evm_bridge_scope, evm_request_proof_slot(evm_request_id, PROOF_EXISTS_OFFSET)),
+        "invalid EVM proof status");
+    eosio::check(state == 2, "depositor has not requested a refund");
+    // refundDeposit(uint256,bytes32). The EVM contract binds the number to the
+    // proven hash and pays the recorded depositor, never a relayer-supplied address.
+    const string signature = "refundDeposit(uint256,bytes32)";
+    std::array<uint8_t, 32> hash = {};
+    SHA3_CTX context;
+    keccak_init(&context);
+    keccak_update(&context, reinterpret_cast<const uint8_t*>(signature.data()), signature.size());
+    keccak_final(&context, hash.data());
+    std::vector<uint8_t> calldata(hash.begin(), hash.begin() + 4);
+    append_uint256_word(calldata, evm_request_number);
+    append_bytes32_word(calldata, evm_request_id);
+    dispatch_evm(calldata);
+    eosio::action(eosio::permission_level{get_self(), "active"_n}, get_self(), "checkrefund"_n,
+                  std::make_tuple(evm_request_id)).send();
+}
+
+void zerobridge::checkrefund(checksum256 evm_request_id) {
+    require_auth(get_self());
+    auto evm_conf = get_evm_config();
+    auto state = checksum256_to_uint64(
+        read_evm_storage(evm_conf.evm_bridge_scope, evm_request_proof_slot(evm_request_id, PROOF_EXISTS_OFFSET)),
+        "invalid EVM proof status");
+    eosio::check(state == 3, "EVM refund failed; rolling back native transaction");
 }
 
 void zerobridge::release_ztoe_request(uint64_t request_id) {
@@ -383,8 +447,26 @@ void zerobridge::release_ztoe_request(uint64_t request_id) {
     auto processed_word = read_evm_storage(evm_conf.evm_bridge_scope, processed_zero_burn_slot(request->burn_id));
     eosio::check(!checksum256_is_one(processed_word), "Zero burn already released");
 
+    ztoe_status_table statuses(get_self(), get_self().value);
+    auto status = statuses.find(request_id);
+    if (status == statuses.end()) {
+        statuses.emplace(get_self(), [&](auto& row) { row.request_id = request_id; row.dispatching = true; });
+    } else {
+        eosio::check(!status->dispatching && !status->completed, "request is dispatching or completed");
+        statuses.modify(status, eosio::same_payer, [&](auto& row) { row.dispatching = true; });
+    }
+    dispatch_evm(build_release_calldata(*request, pair));
+    // Inline actions execute in order. A failed EVM execution rolls back its gas
+    // charge and all native state changes when this postcondition aborts.
+    eosio::action(eosio::permission_level{get_self(), "active"_n}, get_self(), "checkrelease"_n,
+                  std::make_tuple(request_id)).send();
+}
+
+void zerobridge::dispatch_evm(const std::vector<uint8_t>& calldata) {
+    auto conf = get_config();
+    auto evm_conf = get_evm_config();
+    eosio::check(conf.evm_account == get_self(), "EVM relay account must be the bridge account");
     auto linked = get_linked_bridge_evm_account();
-    auto calldata = build_release_calldata(*request, pair);
     auto raw_tx = rlp::encode_legacy_tx(
         linked.nonce,
         read_evm_gas_price(),
@@ -416,8 +498,12 @@ void zerobridge::ontransfer(name from, name to, asset quantity, string memo) {
     if (pair_itr == by_token_symbol.end()) return;
 
     check_evm_address_string(memo);
+    eosio::check(parse_evm_address_string(memo) != get_evm_config().evm_bridge,
+                 "EVM receiver must not be the bridge address");
     eosio::check(pair_itr->active, "pair is paused");
     auto pair = *pair_itr;
+    eosio::check(quantity.is_valid(), "invalid quantity");
+    convert_asset_amount_to_evm(quantity, pair.evm_decimals);
     eosio::check(quantity.amount >= pair.min_quantity.amount, "quantity below minimum");
     eosio::check(quantity.amount <= pair.max_quantity.amount, "quantity above maximum");
 
@@ -443,7 +529,9 @@ void zerobridge::ontransfer(name from, name to, asset quantity, string memo) {
         std::make_tuple(get_self(), quantity, string("Zero-to-EVM bridge burn"))
     ).send();
 
-    release_ztoe_request(request_id);
+    if (get_evm_config().finality_delay_sec == 0) {
+        release_ztoe_request(request_id);
+    }
 }
 
 zerobridge::config_row zerobridge::get_config() {
@@ -482,11 +570,14 @@ zerobridge::pair_row zerobridge::get_active_pair(uint64_t pair_id) const {
 void zerobridge::check_evm_address_string(const string& value) {
     eosio::check(value.size() == 42, "EVM receiver must be a 42-character 0x address");
     eosio::check(value[0] == '0' && (value[1] == 'x' || value[1] == 'X'), "EVM receiver must start with 0x");
+    bool nonzero = false;
     for (uint32_t i = 2; i < value.size(); i++) {
         char c = value[i];
         bool is_hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
         eosio::check(is_hex, "EVM receiver contains non-hex characters");
+        nonzero = nonzero || c != '0';
     }
+    eosio::check(nonzero, "EVM receiver must not be the zero address");
 }
 
 checksum160 zerobridge::parse_evm_address_string(const string& value) {
@@ -598,6 +689,14 @@ uint64_t zerobridge::checksum256_to_uint64(checksum256 value, const char* error_
     return output;
 }
 
+uint128_t zerobridge::checksum256_to_uint128(checksum256 value, const char* error_message) {
+    auto bytes = value.extract_as_byte_array();
+    for (uint8_t i = 0; i < 16; ++i) eosio::check(bytes[i] == 0, error_message);
+    uint128_t output = 0;
+    for (uint8_t i = 16; i < 32; ++i) output = (output << 8) | bytes[i];
+    return output;
+}
+
 bool zerobridge::checksum256_is_one(checksum256 value) {
     auto bytes = value.extract_as_byte_array();
     for (uint8_t i = 0; i < 31; ++i) {
@@ -629,6 +728,7 @@ uint128_t zerobridge::convert_asset_amount_to_evm(asset quantity, uint8_t evm_de
     eosio::check(quantity.amount > 0, "quantity must be positive");
 
     uint8_t zero_decimals = quantity.symbol.precision();
+    eosio::check(zero_decimals <= 18 && evm_decimals <= 36, "unsupported decimals");
     uint128_t amount = static_cast<uint64_t>(quantity.amount);
 
     if (evm_decimals > zero_decimals) {

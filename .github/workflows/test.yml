@@ -1,0 +1,44 @@
+name: Bridge regressions
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  solidity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned Foundry
+        run: npm install --prefix "$RUNNER_TEMP/foundry" --ignore-scripts --no-audit --no-fund @foundry-rs/forge-linux-amd64@1.7.1
+      - name: Run Solidity regressions
+        working-directory: evm
+        run: '"$RUNNER_TEMP/foundry/node_modules/@foundry-rs/forge-linux-amd64/bin/forge" test -vv'
+  native-and-relayer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned CDT
+        run: |
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/cdt.deb" https://github.com/AntelopeIO/cdt/releases/download/v4.1.1/cdt_4.1.1-1_amd64.deb
+          echo "d946e6b64f297442d19e486401aa49f956080b07a1fa6335f29976106175b588  $RUNNER_TEMP/cdt.deb" | sha256sum --check
+          dpkg-deb -x "$RUNNER_TEMP/cdt.deb" "$RUNNER_TEMP/cdt"
+      - name: Compile native contracts and test fixture
+        run: CDT_CPP="$RUNNER_TEMP/cdt/usr/opt/cdt/4.1.1/bin/cdt-cpp" bash contracts/native/test/build.sh
+      - name: Test compiled native WASM
+        working-directory: contracts/native/test
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Test relayer CLIs and state
+        working-directory: relayer
+        run: |
+          npm ci --ignore-scripts
+          npm test

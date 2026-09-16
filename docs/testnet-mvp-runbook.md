@@ -4,6 +4,8 @@ This runbook is for the first end-to-end testnet loop using mock Telos EVM ERC-2
 
 Testnet already has instant finality enabled for this bridge work. Run the normal EVM-to-Zero path with `dev_mode = false` and `zero.bridge::proveetoz`; keep `processetoz` only for isolated legacy harness debugging.
 
+Read [audit remediation](audit-remediation.md) before using this runbook for the patched deployment. Existing deployment records are not evidence that the fixes are live.
+
 ## 1. Build Native Contracts
 
 ```sh
@@ -20,7 +22,7 @@ Outputs:
 
 ## 2. Deploy EVM Mock Tokens
 
-Create `packages/evm/.env.testnet` from `packages/evm/.env.example`.
+Create `evm/.env.testnet` from `evm/.env.example`.
 
 Set at minimum:
 
@@ -33,7 +35,7 @@ MOCK_INITIAL_HOLDER=<funded-test-wallet>
 Deploy mock tokens:
 
 ```sh
-cd packages/evm
+cd evm
 source .env.testnet
 forge script script/DeployMocks.s.sol:DeployMocks \
   --rpc-url "$TELOS_EVM_RPC" \
@@ -56,7 +58,7 @@ BRIDGE_OWNER=<large-msig-owned-or-test-owner-evm-address>
 ZERO_BRIDGE_EVM_ADDRESS=<authorized-zero-dispatcher-evm-address>
 ```
 
-For initial testnet this dispatcher can be a controlled test harness address. It must not be treated as production architecture for the Zero-to-EVM leg.
+Create the new native bridge account and its linked EVM address before deploying the EVM bridge. Use that linked address for `ZERO_BRIDGE_EVM_ADDRESS`, and fund it with testnet TLOS for dispatch gas. This is required to exercise the patched native release and recovery protocol.
 
 Production owner assumption: `BRIDGE_OWNER` must be a large governance MSIG or an EVM owner contract controlled by that MSIG. Testnet may use a single account only as a temporary harness.
 
@@ -136,7 +138,7 @@ cleos -u "$TELOS_ZERO_API" push action wbtc.bridge create '["zerobridge","21000.
 ## 6. Initialize Native Bridge
 
 ```sh
-cleos -u "$TELOS_ZERO_API" push action zerobridge init '["bridgeadmin","eosio.evm",false]' -p zerobridge@active
+cleos -u "$TELOS_ZERO_API" push action zerobridge init '["bridgeadmin","zerobridge",false]' -p zerobridge@active
 ```
 
 For production, replace `bridgeadmin` with the approved large MSIG-controlled admin account or permission.
@@ -149,7 +151,7 @@ Configure the deployed EVM bridge contract for proof reads. The native contract 
 cleos -u "$TELOS_ZERO_API" push action zerobridge setevmconf '["<EVM_BRIDGE_20_BYTES>",0]' -p bridgeadmin@active
 ```
 
-The second argument is an optional finality delay in seconds. Use `0` on Telos testnet with instant finality enabled unless governance intentionally chooses an additional operational delay.
+The first configured EVM proof address/scope is fixed. Verify it before this call; migrating to a replacement EVM contract requires a new native bridge. The second argument is an optional finality delay in seconds. Use `0` on Telos testnet with instant finality enabled unless governance intentionally chooses an additional operational delay.
 
 Set the EVM chain ID used when `relayztoe` serializes the raw EVM transaction:
 
@@ -199,7 +201,7 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge proveetoz \
 
 1. Transfer `1.000000 ZUSDC` to `zerobridge` with the EVM receiver address in memo.
 2. Confirm a `ztoereqs` row exists and the Zero asset supply decreased.
-3. Confirm the inline release runs in the same user transaction and `processedZeroBurns(burnId)` becomes true.
+3. At zero delay, confirm the inline release and native `checkrelease` run in the same user transaction, `processedZeroBurns(burnId)` becomes true, and `ztoestatus.completed` is true. Repeat at a positive delay: the burn must commit first, release must reject before maturity, and a later `relayztoe` must complete it.
 4. If an older or stalled request was created without an EVM release, retry with the public native relay action:
 
 ```sh
@@ -210,7 +212,7 @@ cleos -u "$TELOS_ZERO_API" push action zerobridge relayztoe '[<REQUEST_ID>]' -p 
 
 ## 10. Configure a Finite Liveness Permission
 
-`proveetoz` and `relayztoe` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those two bridge actions. With inline Zero-to-EVM release enabled, `relayztoe` is primarily a fallback for old/stalled requests or operational retry cases.
+`proveetoz`, `relayztoe`, and `refundetoz` are public liveness actions. A hosted relayer key should not be an admin key; it only needs permission to submit those three bridge actions. With inline Zero-to-EVM release enabled, `relayztoe` is primarily a fallback for old/stalled requests or operational retry cases.
 
 ```sh
 cleos -u "$TELOS_ZERO_API" set account permission relayrunner bridgeops \
@@ -219,6 +221,7 @@ cleos -u "$TELOS_ZERO_API" set account permission relayrunner bridgeops \
 
 cleos -u "$TELOS_ZERO_API" set action permission relayrunner zerobridge proveetoz bridgeops -p relayrunner@active
 cleos -u "$TELOS_ZERO_API" set action permission relayrunner zerobridge relayztoe bridgeops -p relayrunner@active
+cleos -u "$TELOS_ZERO_API" set action permission relayrunner zerobridge refundetoz bridgeops -p relayrunner@active
 ```
 
 Then configure:
@@ -233,13 +236,15 @@ Then configure:
 Copy the relayer config:
 
 ```sh
-cp packages/relayer/src/config.example.json packages/relayer/src/config.local.json
+cp relayer/src/config.example.json relayer/src/config.local.json
 ```
 
 Fill:
 
 - `evm.rpcUrl`
 - `evm.escrowBridge`
+- `evm.chainId` and a fixed `evm.scanFromBlock` at the deployment block (never `latest`)
+- A persistent `zero.stateFile` for the EVM request cursor and retry queue
 - EVM token addresses
 - Zero API URL
 - Zero asset contract accounts
@@ -248,7 +253,7 @@ Fill:
 Run:
 
 ```sh
-cd packages/relayer
+cd relayer
 npm test
 node src/reconcile.js src/config.local.json
 node src/scan-evm-requests.js src/config.local.json
@@ -266,3 +271,13 @@ node src/process-zero-requests.js src/config.local.json --dry-run
 - `proveetoz` succeeds with `dev_mode = false` by reading live `eosio.evm::accountstate` storage.
 - `relayztoe` succeeds from a non-bridge relayer account, with the EVM release sent from the bridge account's linked EVM address.
 - All remaining operator-only assumptions are listed before any production design review.
+
+Additional patched-deployment exit criteria:
+
+- An EVM execution failure aborts the surrounding native transaction; inspect the bridge-linked gas balance and nonce to confirm rollback. Repeat failures through public `relayztoe` for a committed delayed burn.
+- Completed withdrawal → native refund and native refund → release both reject; a failed pending withdrawal refunds exactly once.
+- Depositor cancellation before native issuance refunds exactly once, and cancellation after native issuance cannot refund. Repeat with paused bridge/pairs.
+- Per-pair daily release caps stop aggregate withdrawals and reset at the next UTC day.
+- Unequal-decimal pairs preserve amounts in both directions and reject rounding dust.
+- Restart the relayer between discovery and retry; unresolved work remains and a malformed request cannot block later requests.
+- Reconciliation of balances, supply, pending claims, completions, and refunds is reviewed at a consistent chain state. The current CLI's supply-only `OK` is insufficient for this gate.
