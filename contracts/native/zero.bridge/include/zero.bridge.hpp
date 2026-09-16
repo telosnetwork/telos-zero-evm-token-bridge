@@ -2,6 +2,7 @@
 #pragma once
 
 #include <eosio/asset.hpp>
+#include <eosio/binary_extension.hpp>
 #include <eosio/crypto.hpp>
 #include <eosio/eosio.hpp>
 #include <eosio/singleton.hpp>
@@ -63,6 +64,9 @@ public:
     );
     [[eosio::action]] void refundztoe(uint64_t request_id, string reason);
     [[eosio::action]] void relayztoe(uint64_t request_id);
+    [[eosio::action]] void checkrelease(uint64_t request_id);
+    [[eosio::action]] void refundetoz(uint64_t evm_request_number, checksum256 evm_request_id);
+    [[eosio::action]] void checkrefund(checksum256 evm_request_id);
 
     [[eosio::on_notify("*::transfer")]] void ontransfer(name from, name to, asset quantity, string memo);
 
@@ -124,6 +128,14 @@ private:
         checksum256 by_burn_id() const { return burn_id; }
     };
 
+    // Separate table preserves the serialized layout of existing request rows.
+    struct [[eosio::table("ztoestatus")]] ztoe_status {
+        uint64_t request_id;
+        bool dispatching = false;
+        bool completed = false;
+        uint64_t primary_key() const { return request_id; }
+    };
+
     struct [[eosio::table, eosio::contract("eosio.evm")]] evm_account {
         uint64_t index;
         checksum160 address;
@@ -151,7 +163,7 @@ private:
         uint32_t last_block;
         checksum256 gas_used_block;
         checksum256 gas_price;
-        uint32_t revision;
+        eosio::binary_extension<uint32_t> revision;
     };
 
     using config_singleton = eosio::singleton<"config"_n, config_row>;
@@ -177,6 +189,7 @@ private:
         indexed_by<"byaddress"_n, eosio::const_mem_fun<evm_account, checksum256, &evm_account::by_address>>,
         indexed_by<"byaccount"_n, eosio::const_mem_fun<evm_account, uint64_t, &evm_account::by_account>>
     >;
+    using ztoe_status_table = eosio::multi_index<"ztoestatus"_n, ztoe_status>;
     using evm_account_state_table = eosio::multi_index<
         "accountstate"_n,
         evm_account_state,
@@ -194,6 +207,7 @@ private:
     pair_row get_active_pair(name token_contract, symbol zero_symbol) const;
     pair_row get_active_pair(uint64_t pair_id) const;
     void release_ztoe_request(uint64_t request_id);
+    void dispatch_evm(const std::vector<uint8_t>& calldata);
     checksum256 read_evm_storage(uint64_t evm_scope, checksum256 key) const;
     checksum256 read_evm_gas_price() const;
     static void check_evm_address_string(const string& value);
@@ -205,6 +219,7 @@ private:
     static checksum256 keccak256_bytes(const std::array<uint8_t, 64>& input);
     static checksum256 add_storage_slot_offset(checksum256 slot, uint8_t offset);
     static uint64_t checksum256_to_uint64(checksum256 value, const char* error_message);
+    static uint128_t checksum256_to_uint128(checksum256 value, const char* error_message);
     static bool checksum256_is_one(checksum256 value);
     static bool padded_address_equals(checksum256 storage_word, checksum160 address);
     static checksum256 zero_receiver_hash(name receiver);

@@ -7,7 +7,7 @@ This folder contains the native-side MVP contracts.
 
 Current status:
 
-- The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`, burns the Zero asset, and immediately dispatches the EVM release inline from the transfer notification.
+- The Zero-to-EVM path creates a burn request when a user transfers a fresh bridge asset to `zero.bridge`, burns the Zero asset, and dispatches the EVM release inline when the finality delay is zero. A positive delay leaves the burn pending for a later `relayztoe`.
 - The EVM-to-Zero path has a public `proveetoz` action that verifies fixed proof slots in the Telos EVM bridge contract through `eosio.evm::accountstate`.
 - The Zero-to-EVM release path uses the same `relayztoe` logic for both automatic release and manual retry. It verifies a burn request and dispatches `releaseToEvm` through `eosio.evm::raw` from the bridge account's linked EVM address.
 - The old `processetoz` action remains gated by `dev_mode` for legacy/manual test harnesses only.
@@ -66,8 +66,25 @@ For automatic Zero-to-EVM release and manual `relayztoe` retries, the bridge acc
 
 Relayer note:
 
-`proveetoz` and `relayztoe` are intentionally public actions. Production automation should use a finite account permission such as `bridgeops`, linked only to those bridge actions. The key behind that permission improves fallback liveness when automatic release fails or stalls, but it cannot redirect value because the contract verifies EVM storage or native burn state before it mutates bridge balances.
+`proveetoz`, `relayztoe`, and `refundetoz` are intentionally public actions. Production automation should use a finite account permission such as `bridgeops`, linked only to those bridge actions. The key behind that permission improves fallback liveness when automatic release fails or stalls, but it cannot redirect value because the contract verifies EVM storage or native burn state before it mutates bridge balances.
 
 Production admin note:
 
 Examples may use `bridgeadmin` for readability. On mainnet, replace that with the approved large MSIG-controlled admin account/permission; no bridge owner, issuer, or admin authority should be controlled by one person.
+
+## Recovery and native regression tests
+
+`checkrelease` and `checkrefund` are self-authorized inline postconditions. They abort the transaction when the EVM completion state is missing. `refundztoe` requires admin authorization and rejects completed EVM burns, including legacy rows without native completion status. `refundetoz` only refunds a depositor-cancelled EVM request with no native issuance record. Do not link the self-check actions to a relayer authority.
+
+Once `dev_mode` is false it cannot be re-enabled. The first configured EVM proof address/scope is fixed; later `setevmconf` calls may change its delay, but migration to a different EVM contract requires a new native bridge. See [audit remediation](../../docs/audit-remediation.md) before an upgrade or migration.
+
+Compile production WASM and the test-only EVM fixture with CDT 4.1.1, then run the VeRT regressions:
+
+```sh
+cd test
+npm ci --ignore-scripts
+CDT_CPP=/path/to/cdt-cpp bash build.sh
+npm test
+```
+
+The fixture models EVM storage and transactional `raw` completion/failure; it does not execute EVM bytecode. Never deploy `mock.evm` outside local tests. Actual Telos EVM gas, nonce, storage visibility, and rollback must also be checked on the deployment runtime.

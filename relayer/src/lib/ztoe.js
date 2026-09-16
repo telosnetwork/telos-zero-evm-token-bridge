@@ -35,7 +35,9 @@ export function buildZeroToEvmRelease(config, request) {
     throw new Error(`Zero request ${request.request_id} decimals ${quantity.decimals} do not match pair ${pair.zeroDecimals}`);
   }
 
-  assertHexAddress(request.evm_receiver, `Zero request ${request.request_id} EVM receiver`);
+  const receiver = request.evm_receiver.replace(/^0X/, "0x");
+  assertHexAddress(receiver, `Zero request ${request.request_id} EVM receiver`);
+  if (/^0x0{40}$/.test(receiver)) throw new Error("Zero EVM receiver cannot be released; request requires recovery");
 
   const amount = convertDecimals(quantity.raw, pair.zeroDecimals, pair.evmDecimals);
   return {
@@ -43,7 +45,7 @@ export function buildZeroToEvmRelease(config, request) {
     pair,
     burnId: normalizeBurnId(request.burn_id),
     amount,
-    receiver: request.evm_receiver,
+    receiver,
     zeroSender: request.sender
   };
 }

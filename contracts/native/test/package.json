@@ -1,0 +1,6 @@
+{
+  "name": "zero-bridge-native-regressions",
+  "private": true,
+  "scripts": {"test": "node --test bridge.test.cjs"},
+  "devDependencies": {"@proton/vert": "0.3.24", "@greymass/eosio": "0.7.0", "viem": "2.53.1"}
+}
